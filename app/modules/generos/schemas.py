@@ -6,6 +6,8 @@ from pydantic import BaseModel, ConfigDict
 class GeneroCreate(BaseModel):
     nombre: str
 
+    model_config = ConfigDict(extra="forbid")
+
 
 class GeneroRead(BaseModel):
     id: int
@@ -23,4 +25,3 @@ class LibroDeGeneroRead(BaseModel):
     editorial_id: int
 
     model_config = ConfigDict(from_attributes=True)
-

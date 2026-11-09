@@ -7,6 +7,8 @@ class EditorialBase(BaseModel):
     nombre: str
     pais: str
 
+    model_config = ConfigDict(extra="forbid")
+
 
 class EditorialCreate(EditorialBase):
     pass
@@ -15,6 +17,8 @@ class EditorialCreate(EditorialBase):
 class EditorialUpdate(BaseModel):
     nombre: Optional[str] = None
     pais: Optional[str] = None
+
+    model_config = ConfigDict(extra="forbid")
 
 
 class EditorialRead(EditorialBase):
@@ -32,4 +36,3 @@ class LibroDeEditorialRead(BaseModel):
     genero_id: Optional[int] = None
 
     model_config = ConfigDict(from_attributes=True)
-

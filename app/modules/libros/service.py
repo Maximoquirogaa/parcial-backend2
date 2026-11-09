@@ -1,26 +1,61 @@
-from typing import Optional, Sequence
+from typing import Optional
 from fastapi import HTTPException, status
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import joinedload, selectinload
-from sqlmodel import select
 
+from app.core.paginacion import Pagina, ParametrosPagina, paginar
 from app.modules.editoriales.schemas import EditorialRead
 from app.modules.generos.schemas import GeneroRead
-from app.modules.libros.models import Libro, LibroAutor
+from app.modules.libros.models import Libro, LibroAutor, MovimientoStock
 from app.modules.libros.schemas import (
     AutorEnLibroRead,
     LibroCreate,
     LibroDetailRead,
     LibroListRead,
     LibroUpdate,
+    MovimientoStockRead,
+    ReponerStockRequest,
 )
+from app.modules.libros.unit_of_work import LibrosUnitOfWork
+
+
+async def registrar_movimiento_stock(
+    session_o_uow,
+    libro: Libro,
+    cantidad: int,
+    motivo: str,
+    venta_id: Optional[int] = None,
+    usuario_id: Optional[int] = None,
+) -> MovimientoStock:
+    """
+    PUNTO ÚNICO de mutación de stock en todo el sistema.
+    Actualiza libro.stock y crea el registro inmutable en movimiento_stock.
+    """
+    if cantidad == 0:
+        raise ValueError("La cantidad del movimiento no puede ser cero.")
+
+    from app.core.unit_of_work import UnitOfWork
+    if isinstance(session_o_uow, UnitOfWork):
+        session = session_o_uow.session
+    else:
+        session = session_o_uow
+
+    libro.stock += cantidad
+    movimiento = MovimientoStock(
+        libro_id=libro.id,
+        cantidad=cantidad,
+        motivo=motivo,
+        venta_id=venta_id,
+        usuario_id=usuario_id,
+    )
+    session.add(movimiento)
+    session.add(libro)
+    await session.flush()
+    return movimiento
 
 
 def _build_libro_detail_read(libro: Libro) -> LibroDetailRead:
     """Helper para transformar el modelo con relaciones precargadas al DTO LibroDetailRead."""
     autores_dto = []
-    # Ordenar las autorías por el campo orden especificado en la relación
     autorias_ordenadas = sorted(libro.autorias, key=lambda a: a.orden)
     for autoria in autorias_ordenadas:
         if autoria.autor is not None:
@@ -46,129 +81,156 @@ def _build_libro_detail_read(libro: Libro) -> LibroDetailRead:
     )
 
 
-async def get_libro_detail_by_id(session: AsyncSession, libro_id: int) -> LibroDetailRead:
-    """
-    Obtiene el detalle completo de un libro mediante carga anticipada:
-    joinedload para relaciones a 1 (editorial, género)
-    selectinload para la colección (autorías -> autor)
-    Garantiza número constante de consultas (sin problema N+1, Ejercicio 6).
-    """
-    stmt = (
-        select(Libro)
-        .options(
-            joinedload(Libro.editorial),
-            joinedload(Libro.genero),
-            selectinload(Libro.autorias).joinedload(LibroAutor.autor),
-        )
-        .where(Libro.id == libro_id)
-    )
-    result = await session.execute(stmt)
-    libro = result.scalar_one_or_none()
-
-    if not libro:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Libro con ID {libro_id} no encontrado."
-        )
-
-    return _build_libro_detail_read(libro)
+async def get_libro_detail_by_id(uow: LibrosUnitOfWork, libro_id: int) -> LibroDetailRead:
+    async with uow:
+        libro = await uow.libros.get_detail_by_id(libro_id)
+        if not libro:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Libro con ID {libro_id} no encontrado."
+            )
+        return _build_libro_detail_read(libro)
 
 
-async def create_libro(session: AsyncSession, data: LibroCreate) -> LibroDetailRead:
-    """
-    Crea un libro y sus autorías asociadas.
-    Cumple Ejercicio 5: NINGÚN if consulta antes si un id existe (editorial, género, autores).
-    Se escribe directamente y si la base rechaza una clave foránea o unicidad, se responde 409.
-    """
-    libro = Libro(
-        isbn=data.isbn,
-        titulo=data.titulo,
-        precio=data.precio,
-        stock=data.stock,
-        editorial_id=data.editorial_id,
-        genero_id=data.genero_id,
-    )
-
-    # Asociar autores en la tabla intermedia de asociación
-    for autor_data in data.autores:
-        relacion = LibroAutor(
-            libro=libro,
-            autor_id=autor_data.autor_id,
-            rol=autor_data.rol,
-            orden=autor_data.orden,
-        )
-        libro.autorias.append(relacion)
-
-    session.add(libro)
-    try:
-        await session.commit()
-    except IntegrityError:
-        await session.rollback()
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="Error de integridad: verifique que el ISBN no esté repetido y que la editorial, género y autores existan."
+async def create_libro(uow: LibrosUnitOfWork, data: LibroCreate) -> LibroDetailRead:
+    async with uow:
+        # Se crea con stock 0 y luego se usa el punto único de stock si stock inicial > 0
+        stock_a_asignar = data.stock
+        libro = Libro(
+            isbn=data.isbn,
+            titulo=data.titulo,
+            precio=data.precio,
+            stock=0,
+            editorial_id=data.editorial_id,
+            genero_id=data.genero_id,
         )
 
-    # Retornar el detalle con carga anticipada
-    return await get_libro_detail_by_id(session, libro.id)
+        for autor_data in data.autores:
+            relacion = LibroAutor(
+                libro=libro,
+                autor_id=autor_data.autor_id,
+                rol=autor_data.rol,
+                orden=autor_data.orden,
+            )
+            libro.autorias.append(relacion)
+
+        try:
+            await uow.libros.add(libro)
+            if stock_a_asignar > 0:
+                await registrar_movimiento_stock(
+                    uow,
+                    libro=libro,
+                    cantidad=stock_a_asignar,
+                    motivo="Stock inicial",
+                )
+        except IntegrityError:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Error de integridad: verifique que el ISBN no esté repetido y que la editorial, género y autores existan."
+            )
+
+        detailed = await uow.libros.get_detail_by_id(libro.id)
+        return _build_libro_detail_read(detailed)
 
 
 async def get_libros_list(
-    session: AsyncSession,
-    limit: int,
-    offset: int,
+    uow: LibrosUnitOfWork,
+    params: ParametrosPagina,
     titulo: Optional[str] = None,
     genero_id: Optional[int] = None,
-) -> Sequence[Libro]:
-    """
-    Listado con paginación (RN-10) y filtros con parámetros ligados (RN-11).
-    Carga anticipada con joinedload para editorial y género (sin N+1).
-    """
-    stmt = (
-        select(Libro)
-        .options(
-            joinedload(Libro.editorial),
-            joinedload(Libro.genero),
+) -> Pagina[LibroListRead]:
+    async with uow:
+        total = await uow.libros.count_con_filtros(titulo=titulo, genero_id=genero_id)
+        skip = (params.page - 1) * params.size
+        libros = await uow.libros.listar_con_filtros(
+            skip=skip,
+            limit=params.size,
+            titulo=titulo,
+            genero_id=genero_id,
         )
-    )
-
-    if titulo:
-        # Parámetro ligado seguro mediante ilike, sin concatenación de SQL
-        stmt = stmt.where(Libro.titulo.ilike(f"%{titulo}%"))
-
-    if genero_id is not None:
-        stmt = stmt.where(Libro.genero_id == genero_id)
-
-    stmt = stmt.order_by(Libro.id).limit(limit).offset(offset)
-    result = await session.execute(stmt)
-    return result.scalars().all()
+        items_read = [LibroListRead.model_validate(libro) for libro in libros]
+        return paginar(items=items_read, total=total, page=params.page, size=params.size)
 
 
 async def update_libro(
-    session: AsyncSession,
+    uow: LibrosUnitOfWork,
     libro_id: int,
     data: LibroUpdate,
 ) -> LibroDetailRead:
-    libro = await session.get(Libro, libro_id)
-    if not libro:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Libro con ID {libro_id} no encontrado."
+    async with uow:
+        libro = await uow.libros.get_by_id(libro_id)
+        if not libro:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Libro con ID {libro_id} no encontrado."
+            )
+
+        update_dict = data.model_dump(exclude_unset=True)
+        for field, val in update_dict.items():
+            setattr(libro, field, val)
+
+        try:
+            await uow.libros.update(libro)
+        except IntegrityError:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Error al actualizar libro: clave foránea o unicidad inválida."
+            )
+
+        detailed = await uow.libros.get_detail_by_id(libro.id)
+        return _build_libro_detail_read(detailed)
+
+
+async def reponer_stock(
+    uow: LibrosUnitOfWork,
+    libro_id: int,
+    data: ReponerStockRequest,
+    usuario_id: Optional[int] = None,
+) -> MovimientoStockRead:
+    async with uow:
+        libro = await uow.libros.get_by_id(libro_id)
+        if not libro:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Libro con ID {libro_id} no encontrado."
+            )
+
+        movimiento = await registrar_movimiento_stock(
+            uow,
+            libro=libro,
+            cantidad=data.cantidad,
+            motivo=data.motivo,
+            usuario_id=usuario_id,
         )
+        return MovimientoStockRead.model_validate(movimiento)
 
-    update_dict = data.model_dump(exclude_unset=True)
-    for field, val in update_dict.items():
-        setattr(libro, field, val)
 
-    session.add(libro)
-    try:
-        await session.commit()
-    except IntegrityError:
-        await session.rollback()
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="Error al actualizar libro: clave foránea o unicidad inválida."
-        )
+async def get_movimientos_libro(
+    uow: LibrosUnitOfWork,
+    libro_id: int,
+    params: ParametrosPagina,
+) -> Pagina[MovimientoStockRead]:
+    async with uow:
+        libro = await uow.libros.get_by_id_including_deleted(libro_id)
+        if not libro:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Libro con ID {libro_id} no encontrado."
+            )
 
-    return await get_libro_detail_by_id(session, libro.id)
+        total = await uow.movimientos.count_por_libro(libro_id)
+        skip = (params.page - 1) * params.size
+        movs = await uow.movimientos.listar_por_libro(libro_id, skip=skip, limit=params.size)
+        items_read = [MovimientoStockRead.model_validate(m) for m in movs]
+        return paginar(items=items_read, total=total, page=params.page, size=params.size)
 
+
+async def delete_libro(uow: LibrosUnitOfWork, libro_id: int) -> None:
+    async with uow:
+        libro = await uow.libros.get_by_id(libro_id)
+        if not libro:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Libro con ID {libro_id} no encontrado."
+            )
+        await uow.libros.soft_delete(libro)

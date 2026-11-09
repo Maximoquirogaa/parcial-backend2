@@ -8,10 +8,14 @@ class RenglonCreate(BaseModel):
     libro_id: int
     cantidad: int = Field(gt=0, description="La cantidad debe ser mayor a 0")
 
+    model_config = ConfigDict(extra="forbid")
+
 
 class VentaCreate(BaseModel):
     cliente_id: int
     renglones: list[RenglonCreate]
+
+    model_config = ConfigDict(extra="forbid")
 
     @model_validator(mode="after")
     def validar_reglas_renglones(self):
@@ -61,4 +65,3 @@ class VentaDetailRead(BaseModel):
     renglones: list[RenglonRead]
 
     model_config = ConfigDict(from_attributes=True)
-

@@ -3,6 +3,7 @@ from sqlmodel import SQLModel, Field, Relationship
 
 if TYPE_CHECKING:
     from app.modules.ventas.models import Venta
+    from app.modules.usuarios.models import Usuario
 
 
 class Cliente(SQLModel, table=True):
@@ -11,6 +12,16 @@ class Cliente(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
     nombre: str = Field(nullable=False)
     email: str = Field(nullable=False, unique=True, index=True)
+    usuario_id: Optional[int] = Field(
+        default=None,
+        foreign_key="usuario.id",
+        unique=True,
+        index=True,
+        nullable=True
+    )
+
+    # Relación 1 a 0..1 con Usuario
+    usuario: Optional["Usuario"] = Relationship(back_populates="cliente")
 
     # Relación 1 a 0..1 con PerfilCliente: uselist=False garantiza que devuelva un objeto y no una lista
     perfil: Optional["PerfilCliente"] = Relationship(
@@ -37,4 +48,3 @@ class PerfilCliente(SQLModel, table=True):
 
     # Relación inversa hacia Cliente
     cliente: Optional[Cliente] = Relationship(back_populates="perfil")
-

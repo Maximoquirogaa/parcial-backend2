@@ -15,15 +15,16 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 if str(BASE_DIR) not in sys.path:
     sys.path.insert(0, str(BASE_DIR))
 
-from app.core.config import DATABASE_URL
+from app.core.config import get_settings
 
-# Importación de modelos para que SQLModel.metadata registre todas las tablas
+# Importación de todos los modelos para que SQLModel.metadata registre el esquema completo
 import app.modules.editoriales.models  # noqa: F401
 import app.modules.autores.models      # noqa: F401
 import app.modules.libros.models       # noqa: F401
 import app.modules.clientes.models     # noqa: F401
 import app.modules.ventas.models       # noqa: F401
 import app.modules.generos.models      # noqa: F401
+import app.modules.usuarios.models     # noqa: F401
 
 
 # Configuración de logging de Alembic
@@ -31,8 +32,9 @@ config = context.config
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
-# Inyectar la URL de la base de datos desde la variable de entorno
-config.set_main_option("sqlalchemy.url", DATABASE_URL)
+# Inyectar la URL de la base de datos desde la configuración
+settings = get_settings()
+config.set_main_option("sqlalchemy.url", settings.database_url)
 
 target_metadata = SQLModel.metadata
 
@@ -64,7 +66,7 @@ def do_run_migrations(connection: Connection) -> None:
 
 
 async def run_async_migrations() -> None:
-    """Crea motor asincrónico y ejecuta las migraciones."""
+    """Crea un AsyncEngine y asocia la conexión al contexto de migración."""
     connectable = async_engine_from_config(
         config.get_section(config.config_ini_section, {}),
         prefix="sqlalchemy.",

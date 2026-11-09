@@ -39,18 +39,18 @@
 - [x] 5.6 Guardar `despliegue/evidencia/D-06_contenido_imagen.txt` con `docker run --rm --entrypoint ls <imagen> /app` y `docker run --rm --entrypoint env <imagen>`; verificar que no aparece `.env`, `DATABASE_URL` ni contraseñas.
 - [x] 5.7 Guardar `despliegue/evidencia/D-07_usuario.txt` con `docker exec libreria id`; verificar que el uid no es 0 y que el archivo muestra el usuario.
 - [ ] 5.8 Guardar `despliegue/evidencia/D-08_aviso_comprobante.txt` con el fragmento de `docker logs libreria` posterior a la venta de D-03; verificar que el aviso aparece después de la línea de la respuesta.
-- [ ] 5.9 Revisar la carpeta `evidencia/` completa y verificar que existen los ocho archivos D-01 a D-08, que cada uno tiene comando y salida, y que ninguno incluye credenciales reales.
+- [ ] 5.9 Revisar la carpeta `evidencia/` completa y verificar que existen los ocho archivos D-01 a D-08, que cada uno tiene comando y salida, y que ninguno incluye credenciales reales. (Revisión parcial hecha: D-01/D-05/D-06/D-07 presentes y sin credenciales; faltan D-02/D-03/D-04/D-08 → pendiente de VPS.)
 
 ## 6. Documentación del despliegue
 
 - [ ] 6.1 Escribir `despliegue/DEPLOY.md` con la URL pública, el día y la hora del despliegue, los comandos `docker build` y `docker run` completos con el nombre del archivo de variables, los cambios hechos al TP y el procedimiento de actualización; verificar que no incluye el contenido del archivo de variables ni secretos.
-- [ ] 6.2 Documentar en `DEPLOY.md` cualquier corrección aplicada al TP para que arranque en el contenedor (por ejemplo, una ruta de salud) o dejar constancia explícita de que no hizo falta ninguna; verificar que la sección de cambios coincide con el diff real del snapshot.
+- [x] 6.2 Documentar en `DEPLOY.md` cualquier corrección aplicada al TP para que arranque en el contenedor (por ejemplo, una ruta de salud) o dejar constancia explícita de que no hizo falta ninguna; verificar que la sección de cambios coincide con el diff real del snapshot.
 - [ ] 6.3 Verificar el procedimiento de actualización ejecutando el ciclo completo en el VPS: construir de nuevo, `docker rm -f libreria`, el mismo `docker run`, comprobar `healthy` y que los datos siguen; ajustar `DEPLOY.md` si algún comando no coincide con lo probado.
 
 ## 7. Verificación de integración
 
-- [ ] 7.1 Verificar con `git diff --no-index` que el snapshot sólo agrega `Dockerfile`, `.dockerignore`, `env.example`, `DEPLOY.md` y `evidencia/` respecto de `f934174`, sin cambios de lógica no documentados.
-- [ ] 7.2 Verificar que `despliegue/` no contiene `.env`, `venv`, `.venv` ni `__pycache__`, y que sí contiene `env.example` y la carpeta `evidencia/` completa, de cara al armado del `.zip`.
+- [x] 7.1 Verificar con `git diff --no-index` que el snapshot sólo agrega `Dockerfile`, `.dockerignore`, `env.example`, `DEPLOY.md` y `evidencia/` respecto de `f934174`, sin cambios de lógica no documentados.
+- [x] 7.2 Verificar que `despliegue/` no contiene `.env`, `venv`, `.venv` ni `__pycache__`, y que sí contiene `env.example` y la carpeta `evidencia/` completa, de cara al armado del `.zip`.
 - [ ] 7.3 Contrastar los requisitos de `specs/deployment/container-image/spec.md` y `specs/deployment/vps-release/spec.md` con la evidencia y `DEPLOY.md`, y confirmar que cada escenario tiene su comprobación registrada.
 
 ## Workflow follow-up

@@ -1,48 +1,60 @@
-from typing import Sequence
 from fastapi import HTTPException, status
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlmodel import select
 
+from app.core.paginacion import Pagina, ParametrosPagina, paginar
 from app.modules.generos.models import Genero
-from app.modules.generos.schemas import GeneroCreate
-from app.modules.libros.models import Libro
+from app.modules.generos.schemas import GeneroCreate, GeneroRead, LibroDeGeneroRead
+from app.modules.generos.unit_of_work import GenerosUnitOfWork
 
 
-async def create_genero(session: AsyncSession, data: GeneroCreate) -> Genero:
-    genero = Genero(nombre=data.nombre)
-    session.add(genero)
-    try:
-        await session.commit()
-        await session.refresh(genero)
+async def create_genero(uow: GenerosUnitOfWork, data: GeneroCreate) -> Genero:
+    async with uow:
+        genero = Genero(nombre=data.nombre)
+        try:
+            await uow.generos.add(genero)
+            return genero
+        except IntegrityError:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Ya existe un género con ese nombre."
+            )
+
+
+async def get_generos(uow: GenerosUnitOfWork, params: ParametrosPagina) -> Pagina[GeneroRead]:
+    async with uow:
+        total = await uow.generos.count()
+        skip = (params.page - 1) * params.size
+        items = await uow.generos.get_all(skip=skip, limit=params.size, order_by=Genero.id)
+        items_read = [GeneroRead.model_validate(item) for item in items]
+        return paginar(items=items_read, total=total, page=params.page, size=params.size)
+
+
+async def get_genero_by_id(uow: GenerosUnitOfWork, genero_id: int) -> Genero:
+    async with uow:
+        genero = await uow.generos.get_by_id(genero_id)
+        if not genero:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Género con ID {genero_id} no encontrado."
+            )
         return genero
-    except IntegrityError:
-        await session.rollback()
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="Ya existe un género con ese nombre."
-        )
 
 
-async def get_generos(session: AsyncSession) -> Sequence[Genero]:
-    query = select(Genero).order_by(Genero.id)
-    result = await session.execute(query)
-    return result.scalars().all()
+async def get_libros_de_genero(
+    uow: GenerosUnitOfWork,
+    genero_id: int,
+    params: ParametrosPagina
+) -> Pagina[LibroDeGeneroRead]:
+    async with uow:
+        genero = await uow.generos.get_by_id(genero_id)
+        if not genero:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Género con ID {genero_id} no encontrado."
+            )
 
-
-async def get_genero_by_id(session: AsyncSession, genero_id: int) -> Genero:
-    genero = await session.get(Genero, genero_id)
-    if not genero:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Género con ID {genero_id} no encontrado."
-        )
-    return genero
-
-
-async def get_libros_de_genero(session: AsyncSession, genero_id: int) -> Sequence[Libro]:
-    await get_genero_by_id(session, genero_id)
-    query = select(Libro).where(Libro.genero_id == genero_id).order_by(Libro.id)
-    result = await session.execute(query)
-    return result.scalars().all()
-
+        total = await uow.generos.count_libros(genero_id)
+        skip = (params.page - 1) * params.size
+        libros = await uow.generos.get_libros(genero_id, skip=skip, limit=params.size)
+        items_read = [LibroDeGeneroRead.model_validate(libro) for libro in libros]
+        return paginar(items=items_read, total=total, page=params.page, size=params.size)
