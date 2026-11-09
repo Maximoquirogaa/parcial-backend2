@@ -1,0 +1,12 @@
+.env
+venv/
+.venv/
+.git/
+.gitignore
+__pycache__/
+*.pyc
+.pytest_cache/
+evidencia/
+DEPLOY.md
+Dockerfile
+.dockerignore

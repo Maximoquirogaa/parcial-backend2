@@ -1,0 +1,7 @@
+﻿# Caso D-01: imagen base y tamano
+# Comando:
+docker images --format "{{.Repository}}:{{.Tag}} {{.ID}} {{.Size}}"
+
+# Salida (python:3.12-alpine debe estar por debajo de 100 MB):
+libreria:cap1a4	682b46ba2fd0	256MB
+python:3.12-alpine	e064671ca452	74.8MB

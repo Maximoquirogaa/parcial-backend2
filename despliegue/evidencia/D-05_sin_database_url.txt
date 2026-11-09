@@ -1,0 +1,22 @@
+﻿# Caso D-05: ejecucion sin DATABASE_URL
+# Comando:
+docker run --rm libreria:cap1a4
+
+# Codigo de salida: 1
+
+# Salida (fragmento):
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.12/site-packages/asyncpg/connect_utils.py", line 1162, in __connect_addr
+    tr, pr = await connector
+             ^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.12/site-packages/asyncpg/connect_utils.py", line 996, in _create_ssl_connection
+    tr, pr = await loop.create_connection(
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.12/asyncio/base_events.py", line 1140, in create_connection
+    raise OSError('Multiple exceptions: {}'.format(
+OSError: Multiple exceptions: [Errno 111] Connect call failed ('::1', 5432, 0, 0), [Errno 111] Connect call failed ('127.0.0.1', 5432)
+
+# Nota: el TP define un DATABASE_URL por defecto a localhost:5432/libreria_db.
+# Dentro del contenedor, localhost es el propio contenedor: alembic no alcanza
+# la base, falla y el contenedor termina con codigo distinto de cero.
+# No se modifico config.py porque la consigna prohibe tocar la logica del TP.

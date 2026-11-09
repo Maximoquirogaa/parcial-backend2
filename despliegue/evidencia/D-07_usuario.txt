@@ -1,0 +1,6 @@
+﻿# Caso D-07: usuario del proceso
+# Comando:
+docker exec libreria id
+
+# Salida (uid distinto de 0):
+uid=100(app) gid=101(app) groups=101(app)

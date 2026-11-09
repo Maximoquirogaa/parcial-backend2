@@ -1,0 +1,233 @@
+### ====================================================================
+### TRABAJO PRÁCTICO INTEGRAL - PROGRAMACIÓN III (UTN)
+### Librería: Catálogo, Clientes y Ventas con FastAPI y PostgreSQL
+### Suite de Casos de Prueba Mínimos (.http)
+### ====================================================================
+
+@baseUrl = http://127.0.0.1:8000
+
+### --------------------------------------------------------------------
+### Health Checks (Ejercicio 1)
+### --------------------------------------------------------------------
+
+### Health Live (No toca la base de datos)
+# Respuesta esperada: 200 OK
+# {"estado": "vivo"}
+GET {{baseUrl}}/health/live
+
+### Health Ready (Verifica conexión con SELECT 1)
+# Respuesta esperada: 200 OK
+# {"estado": "listo", "base_de_datos": "conectada"}
+GET {{baseUrl}}/health/ready
+
+
+### --------------------------------------------------------------------
+### CASO C-01: Parámetro de ruta que no es entero
+### Demuestra: Validación automática de tipos de FastAPI (422 sin ejecutar el handler)
+### --------------------------------------------------------------------
+
+# Respuesta esperada: 422 Unprocessable Entity
+GET {{baseUrl}}/editoriales/texto-no-entero
+
+
+### --------------------------------------------------------------------
+### CASO C-02: ISBN o Email repetido
+### Demuestra: Garantía de unicidad en la base de datos y traducción a 409 (RN-01, RN-02, RN-12)
+### --------------------------------------------------------------------
+
+### C-02A: Email de cliente duplicado (Tomás Ríos ya existe en seed)
+# Respuesta esperada: 409 Conflict
+# { "detail": "Ya existe un cliente registrado con ese correo electrónico." }
+POST {{baseUrl}}/clientes/
+Content-Type: application/json
+
+{
+  "nombre": "Tomás Duplicado",
+  "email": "tomas@example.com"
+}
+
+### C-02B: ISBN de libro repetido (Rayuela 978-950-07-0001-1 ya existe en seed)
+# Respuesta esperada: 409 Conflict
+# { "detail": "Error de integridad: verifique que el ISBN no esté repetido..." }
+POST {{baseUrl}}/libros/
+Content-Type: application/json
+
+{
+  "isbn": "978-950-07-0001-1",
+  "titulo": "Rayuela Edición Clon",
+  "precio": "25000.00",
+  "stock": 5,
+  "editorial_id": 1,
+  "genero_id": 1,
+  "autores": [
+    { "autor_id": 1, "rol": "autor", "orden": 1 }
+  ]
+}
+
+
+### --------------------------------------------------------------------
+### CASO C-03: Segundo perfil para el mismo cliente
+### Demuestra: Restricción 1 a 0..1 con cliente_id UNIQUE en perfil_cliente (RN-09)
+### --------------------------------------------------------------------
+
+### C-03A: Crear primer perfil válido para el cliente 1
+# Respuesta esperada: 201 Created
+POST {{baseUrl}}/clientes/1/perfil
+Content-Type: application/json
+
+{
+  "telefono": "+54 11 4455-6677",
+  "direccion": "Av. Corrientes 1234, CABA"
+}
+
+### C-03B: Intentar crear un segundo perfil para el mismo cliente 1
+# Respuesta esperada: 409 Conflict
+# { "detail": "El cliente ya cuenta con un perfil registrado (un cliente solo puede tener un perfil)." }
+POST {{baseUrl}}/clientes/1/perfil
+Content-Type: application/json
+
+{
+  "telefono": "+54 11 9988-7766",
+  "direccion": "Calle Falsa 123"
+}
+
+
+### --------------------------------------------------------------------
+### CASO C-04: Libro con una editorial o un autor inexistente
+### Demuestra: Rechazo por clave foránea sin realizar consultas SELECT previas (Ejercicio 5)
+### --------------------------------------------------------------------
+
+### C-04A: Libro con editorial_id inexistente (9999)
+# Respuesta esperada: 409 Conflict
+POST {{baseUrl}}/libros/
+Content-Type: application/json
+
+{
+  "isbn": "978-987-00-9999-1",
+  "titulo": "Libro Fantasma Editorial",
+  "precio": "15000.00",
+  "stock": 3,
+  "editorial_id": 9999,
+  "genero_id": 1,
+  "autores": [
+    { "autor_id": 1, "rol": "autor", "orden": 1 }
+  ]
+}
+
+### C-04B: Libro con autor_id inexistente (9999)
+# Respuesta esperada: 409 Conflict
+POST {{baseUrl}}/libros/
+Content-Type: application/json
+
+{
+  "isbn": "978-987-00-9999-2",
+  "titulo": "Libro Fantasma Autor",
+  "precio": "18000.00",
+  "stock": 3,
+  "editorial_id": 1,
+  "genero_id": 1,
+  "autores": [
+    { "autor_id": 9999, "rol": "autor", "orden": 1 }
+  ]
+}
+
+
+### --------------------------------------------------------------------
+### CASO C-05: Venta con un libro o un cliente inexistente
+### Demuestra: Validación relacional y respuesta 409
+### --------------------------------------------------------------------
+
+### C-05A: Venta con cliente inexistente (9999)
+# Respuesta esperada: 409 Conflict
+POST {{baseUrl}}/ventas/
+Content-Type: application/json
+
+{
+  "cliente_id": 9999,
+  "renglones": [
+    { "libro_id": 1, "cantidad": 1 }
+  ]
+}
+
+### C-05B: Venta con libro inexistente (9999)
+# Respuesta esperada: 409 Conflict
+POST {{baseUrl}}/ventas/
+Content-Type: application/json
+
+{
+  "cliente_id": 1,
+  "renglones": [
+    { "libro_id": 9999, "cantidad": 1 }
+  ]
+}
+
+
+### --------------------------------------------------------------------
+### CASO C-06: Venta válida con dos renglones
+### Demuestra: Precios copiados de la base (RN-06), total calculado (RN-07)
+### y aviso simulado en BackgroundTasks (Ejercicio 7)
+### Cálculo: Libro 1 ($25000 x 2 = $50000) + Libro 2 ($27000 x 1 = $27000) = Total $77000.00
+### --------------------------------------------------------------------
+
+# Respuesta esperada: 201 Created
+POST {{baseUrl}}/ventas/
+Content-Type: application/json
+
+{
+  "cliente_id": 1,
+  "renglones": [
+    { "libro_id": 1, "cantidad": 2 },
+    { "libro_id": 2, "cantidad": 1 }
+  ]
+}
+
+
+### --------------------------------------------------------------------
+### CASO C-07: Detalle de un libro y de una venta (Lecturas sin N+1)
+### Demuestra: Carga anticipada con joinedload y selectinload garantizando
+### un número constante de consultas en consola sin importar la cantidad de relaciones
+### --------------------------------------------------------------------
+
+### C-07A: Detalle de Libro (Libro 3 tiene 2 coautores: Bioy Casares y Silvina Ocampo)
+# Respuesta esperada: 200 OK con editorial, género y autores ordenados
+GET {{baseUrl}}/libros/3
+
+### C-07B: Detalle de Venta recién creada (Venta 1 con cliente y renglones)
+# Respuesta esperada: 200 OK con cliente y renglones con subtotales
+GET {{baseUrl}}/ventas/1
+
+
+### --------------------------------------------------------------------
+### CASO C-08: Búsqueda por título con inyección SQL (' OR '1'='1)
+### Demuestra: Consulta parametrizada segura con parámetro ligado (RN-11)
+### --------------------------------------------------------------------
+
+# Respuesta esperada: 200 OK con lista vacía [] (No se inyecta la cláusula SQL)
+GET {{baseUrl}}/libros/?titulo=%27%20OR%20%271%27%3D%271
+
+
+### --------------------------------------------------------------------
+### Endpoints CRUD adicionales para verificación integral
+### --------------------------------------------------------------------
+
+### Listado paginado de libros
+GET {{baseUrl}}/libros/?limit=10&offset=0
+
+### Filtrar libros por género
+GET {{baseUrl}}/libros/?genero_id=1
+
+### Detalle de cliente con su perfil precargado
+GET {{baseUrl}}/clientes/1
+
+### Ventas del cliente 1
+GET {{baseUrl}}/clientes/1/ventas
+
+### Libros de la editorial 1
+GET {{baseUrl}}/editoriales/1/libros
+
+### Libros del género 1
+GET {{baseUrl}}/generos/1/libros
+
+### Libros del autor 3 con su rol y orden
+GET {{baseUrl}}/autores/3/libros
+
