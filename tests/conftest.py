@@ -69,6 +69,17 @@ async def limpiar_filas_tdd() -> None:
     engine = crear_engine_prueba()
     try:
         async with engine.begin() as conn:
+            await conn.execute(text("SET session_replication_role = 'replica';"))
+            await conn.execute(text(
+                """
+                DELETE FROM movimiento_stock
+                WHERE venta_id IN (
+                    SELECT v.id FROM venta v
+                    JOIN cliente c ON c.id = v.cliente_id
+                    WHERE c.email LIKE 'tdd\\_%'
+                ) OR libro_id IN (SELECT id FROM libro WHERE isbn LIKE 'tdd-%')
+                """
+            ))
             await conn.execute(text(
                 """
                 DELETE FROM evento_seguridad
@@ -116,6 +127,7 @@ async def limpiar_filas_tdd() -> None:
             await conn.execute(text(
                 "DELETE FROM usuario WHERE email LIKE 'tdd\\_%'"
             ))
+            await conn.execute(text("SET session_replication_role = 'origin';"))
     finally:
         await engine.dispose()
 

@@ -179,7 +179,6 @@ async def create_venta(uow: VentasUnitOfWork, data: VentaCreate) -> VentaDetailR
             total_acumulado += subtotal
 
             renglon = RenglonVenta(
-                venta=venta,
                 libro_id=item.libro_id,
                 cantidad=item.cantidad,
                 precio_unitario=precio_unitario,
