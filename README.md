@@ -7,6 +7,8 @@ Trabajo Práctico Integrador — Capítulos 1 a 6: Del objeto a la transacción.
 ## Integrantes del Grupo
 * **Máximo Juan Cruz Quiroga**
 * **Fabrizio Simón**
+* **Franco Rios**
+* **Santino Barone**
 
 ---
 

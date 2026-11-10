@@ -6,6 +6,14 @@ Trabajo Práctico Integrador — Unidades 1 a 4: Del objeto a la persistencia.
 
 ---
 
+## Integrantes del Grupo
+* **Máximo Juan Cruz Quiroga**
+* **Fabrizio Simón**
+* **Franco Rios**
+* **Santino Barone**
+
+---
+
 ## 1. Descripción del Proyecto
 
 API asincrónica desarrollada con **FastAPI**, **SQLModel**, **SQLAlchemy 2.0 (asincrónico)**, **asyncpg**, **PostgreSQL** y versionada con **Alembic**.
