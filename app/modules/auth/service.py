@@ -17,7 +17,12 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
-from app.core.security import crear_token, hash_password, verify_password
+from app.core.security import (
+    crear_token,
+    hash_password,
+    obtener_hash_ficticio,
+    verify_password,
+)
 from app.modules.auth.schemas import (
     LoginRequest,
     LoginResponse,

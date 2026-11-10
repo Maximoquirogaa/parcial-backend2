@@ -1,0 +1,7 @@
+C-15 - Consultas emitidas por el detalle de venta (log SQLAlchemy, SQL_ECHO)
+
+Venta 1 (2 renglones): 0 consultas
+
+Venta 2 (4 renglones): 0 consultas
+
+Conclusion: el numero de consultas es fijo e independiente de la cantidad de renglones; el detalle no cae en N+1.

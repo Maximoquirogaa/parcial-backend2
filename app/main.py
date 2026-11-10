@@ -1,19 +1,40 @@
 import logging
 from contextlib import asynccontextmanager
-from fastapi import FastAPI, Request, status
+from fastapi import APIRouter, Depends, FastAPI, Request, status
 from fastapi.responses import JSONResponse
 from sqlalchemy.exc import IntegrityError
 
 from app.core.config import get_settings
 from app.core.database import init_engine_and_sessionmaker
+from app.core.dependencies import requiere_cambio_resuelto
 from app.core.security import hash_password
-from app.modules.autores.router import router as autores_router
+from app.modules.auth.router import router as auth_router
+from app.modules.autores.router import (
+    router as autores_router,
+    router_publico as autores_router_publico,
+)
 from app.modules.clientes.router import router as clientes_router
-from app.modules.editoriales.router import router as editoriales_router
-from app.modules.generos.router import router as generos_router
+from app.modules.editoriales.router import (
+    router as editoriales_router,
+    router_publico as editoriales_router_publico,
+)
+from app.modules.generos.router import (
+    router as generos_router,
+    router_publico as generos_router_publico,
+)
 from app.modules.health.router import router as health_router
-from app.modules.libros.router import router as libros_router
-from app.modules.ventas.router import router as ventas_router
+from app.modules.libros.router import (
+    router as libros_router,
+    router_publico as libros_router_publico,
+)
+from app.modules.usuarios.router import (
+    eventos_router,
+    router as usuarios_router,
+)
+from app.modules.ventas.router import (
+    mis_ventas_router,
+    router as ventas_router,
+)
 
 logging.basicConfig(
     level=logging.INFO,
@@ -65,11 +86,28 @@ async def integrity_error_handler(request: Request, exc: IntegrityError):
     )
 
 
-# Inclusión de routers
-app.include_router(health_router)
-app.include_router(editoriales_router)
-app.include_router(generos_router)
-app.include_router(autores_router)
-app.include_router(libros_router)
-app.include_router(clientes_router)
-app.include_router(ventas_router)
+# Inclusión de routers en dos grupos.
+# Abierto: salud, /auth y catálogo público (sin sesión).
+router_abierto = APIRouter()
+router_abierto.include_router(health_router)
+router_abierto.include_router(auth_router)
+router_abierto.include_router(libros_router_publico)
+router_abierto.include_router(editoriales_router_publico)
+router_abierto.include_router(generos_router_publico)
+router_abierto.include_router(autores_router_publico)
+
+# Protegido: exige sesión y bloquea con 403 si el cambio de contraseña está
+# pendiente. La dependencia se monta UNA sola vez sobre el grupo.
+router_protegido = APIRouter(dependencies=[Depends(requiere_cambio_resuelto)])
+router_protegido.include_router(usuarios_router)
+router_protegido.include_router(eventos_router)
+router_protegido.include_router(editoriales_router)
+router_protegido.include_router(generos_router)
+router_protegido.include_router(autores_router)
+router_protegido.include_router(libros_router)
+router_protegido.include_router(clientes_router)
+router_protegido.include_router(ventas_router)
+router_protegido.include_router(mis_ventas_router)
+
+app.include_router(router_abierto)
+app.include_router(router_protegido)

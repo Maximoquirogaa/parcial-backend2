@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.database import get_session
+from app.core.dependencies import requiere_rol
 from app.core.paginacion import Pagina, ParametrosPagina, get_parametros_pagina
 from app.modules.clientes.schemas import (
     ClienteCreate,
@@ -21,7 +22,11 @@ from app.modules.clientes.service import (
     update_cliente,
 )
 
-router = APIRouter(prefix="/clientes", tags=["Clientes"])
+router = APIRouter(
+    prefix="/clientes",
+    tags=["Clientes"],
+    dependencies=[Depends(requiere_rol("VENDEDOR", "ADMIN"))],
+)
 
 
 def get_uow(session: AsyncSession = Depends(get_session)) -> ClientesUnitOfWork:

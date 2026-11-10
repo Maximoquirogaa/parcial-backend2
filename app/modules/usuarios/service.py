@@ -206,6 +206,23 @@ async def revocar_rol(
     return {"mensaje": f"Rol '{rol}' revocado correctamente."}
 
 
+async def listar_eventos(
+    uow: UsuariosUnitOfWork,
+    params: ParametrosPagina,
+) -> Pagina[EventoSeguridadRead]:
+    """Listado paginado de todos los eventos de seguridad (GET /eventos)."""
+    async with uow:
+        total = await uow.eventos.count()
+        skip = (params.page - 1) * params.size
+        eventos = await uow.eventos.get_all(
+            skip=skip,
+            limit=params.size,
+            order_by=EventoSeguridad.cuando.desc(),
+        )
+        items_read = [EventoSeguridadRead.model_validate(e) for e in eventos]
+        return paginar(items=items_read, total=total, page=params.page, size=params.size)
+
+
 async def listar_eventos_usuario(
     uow: UsuariosUnitOfWork,
     usuario_id: int,

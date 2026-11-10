@@ -17,6 +17,17 @@ from sqlalchemy.pool import NullPool
 from app.core.config import get_settings
 from app.core.security import crear_token, hash_password
 
+# Registrar todos los modelos en el registry de SQLModel antes de configurar
+# cualquier mapper. Sin esto, relaciones por nombre (p. ej. Usuario.movimientos_stock)
+# fallan con KeyError cuando un test importa un módulo aislado.
+import app.modules.autores.models  # noqa: F401
+import app.modules.clientes.models  # noqa: F401
+import app.modules.editoriales.models  # noqa: F401
+import app.modules.generos.models  # noqa: F401
+import app.modules.libros.models  # noqa: F401
+import app.modules.usuarios.models  # noqa: F401
+import app.modules.ventas.models  # noqa: F401
+
 # ---------------------------------------------------------------------------
 # Marcadores de datos de prueba
 # ---------------------------------------------------------------------------

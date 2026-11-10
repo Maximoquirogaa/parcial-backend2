@@ -16,10 +16,10 @@ async def test_lifespan_creates_and_disposes_resources(monkeypatch):
     app = FastAPI(lifespan=lifespan)
     assert not hasattr(app.state, "engine")
     assert not hasattr(app.state, "fabrica_sesiones")
-    assert not hasattr(app.state, "dummy_hash")
+    assert not hasattr(app.state, "hash_ficticio")
 
     async with lifespan(app):
         assert hasattr(app.state, "engine")
         assert hasattr(app.state, "fabrica_sesiones")
-        assert hasattr(app.state, "dummy_hash")
-        assert app.state.dummy_hash.startswith("$2")
+        assert hasattr(app.state, "hash_ficticio")
+        assert app.state.hash_ficticio.startswith("$2")

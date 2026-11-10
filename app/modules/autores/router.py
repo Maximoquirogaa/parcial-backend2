@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.database import get_session
+from app.core.dependencies import requiere_rol
 from app.core.paginacion import Pagina, ParametrosPagina, get_parametros_pagina
 from app.modules.autores.schemas import (
     AutorCreate,
@@ -17,7 +18,12 @@ from app.modules.autores.service import (
     update_autor,
 )
 
-router = APIRouter(prefix="/autores", tags=["Autores"])
+router_publico = APIRouter(prefix="/autores", tags=["Autores"])
+router = APIRouter(
+    prefix="/autores",
+    tags=["Autores"],
+    dependencies=[Depends(requiere_rol("ADMIN"))],
+)
 
 
 def get_uow(session: AsyncSession = Depends(get_session)) -> AutoresUnitOfWork:
@@ -32,7 +38,7 @@ async def post_autor(
     return await create_autor(uow, payload)
 
 
-@router.get("/", response_model=Pagina[AutorRead], status_code=status.HTTP_200_OK)
+@router_publico.get("/", response_model=Pagina[AutorRead], status_code=status.HTTP_200_OK)
 async def list_autores(
     params: ParametrosPagina = Depends(get_parametros_pagina),
     uow: AutoresUnitOfWork = Depends(get_uow)
@@ -40,7 +46,7 @@ async def list_autores(
     return await get_autores(uow, params)
 
 
-@router.get("/{id}", response_model=AutorRead, status_code=status.HTTP_200_OK)
+@router_publico.get("/{id}", response_model=AutorRead, status_code=status.HTTP_200_OK)
 async def get_autor(
     id: int,
     uow: AutoresUnitOfWork = Depends(get_uow)
@@ -57,7 +63,7 @@ async def patch_autor(
     return await update_autor(uow, id, payload)
 
 
-@router.get("/{id}/libros", response_model=Pagina[LibroDeAutorRead], status_code=status.HTTP_200_OK)
+@router_publico.get("/{id}/libros", response_model=Pagina[LibroDeAutorRead], status_code=status.HTTP_200_OK)
 async def get_autor_libros(
     id: int,
     params: ParametrosPagina = Depends(get_parametros_pagina),

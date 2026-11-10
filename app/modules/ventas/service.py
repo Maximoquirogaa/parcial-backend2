@@ -1,4 +1,5 @@
 import asyncio
+from datetime import datetime, timezone
 from decimal import Decimal
 import logging
 from typing import Optional
@@ -10,6 +11,7 @@ from app.core.paginacion import Pagina, ParametrosPagina, paginar
 from app.modules.clientes.models import Cliente
 from app.modules.libros.models import Libro
 from app.modules.libros.service import registrar_movimiento_stock
+from app.modules.usuarios.models import AsignacionRol, Usuario
 from app.modules.ventas.models import RenglonVenta, Venta
 from app.modules.ventas.schemas import (
     ClienteEnVentaRead,
@@ -59,10 +61,35 @@ def _build_venta_detail_read(venta: Venta) -> VentaDetailRead:
     )
 
 
-async def get_venta_detail_by_id(uow: VentasUnitOfWork, venta_id: int) -> VentaDetailRead:
+async def _tiene_rol_personal(uow: VentasUnitOfWork, usuario_id: int) -> bool:
+    """Indica si el usuario tiene un rol vigente de personal (VENDEDOR o ADMIN)."""
+    ahora = datetime.now(timezone.utc)
+    stmt = (
+        select(AsignacionRol.id)
+        .where(
+            AsignacionRol.usuario_id == usuario_id,
+            AsignacionRol.rol.in_(["VENDEDOR", "ADMIN"]),
+            AsignacionRol.revocada_en.is_(None),
+            (AsignacionRol.vence_en.is_(None)) | (AsignacionRol.vence_en > ahora),
+        )
+        .limit(1)
+    )
+    result = await uow.session.execute(stmt)
+    return result.first() is not None
+
+
+async def get_venta_detail_by_id(
+    uow: VentasUnitOfWork,
+    venta_id: int,
+    usuario: Usuario,
+) -> VentaDetailRead:
     """
     Detalle de venta con cliente, renglones y libros resueltos con selectinload
     (número fijo de consultas, sin N+1, incluso con libros dados de baja).
+
+    Autoriza al personal (VENDEDOR/ADMIN vigente) o al cliente dueño de la
+    venta; cualquier otro autenticado recibe 403. La ruta NO lleva
+    `requiere_rol` porque el dueño puede ser un cliente sin rol de personal.
     """
     async with uow:
         venta = await uow.ventas.get_detail_by_id(venta_id)
@@ -71,7 +98,34 @@ async def get_venta_detail_by_id(uow: VentasUnitOfWork, venta_id: int) -> VentaD
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail=f"Venta con ID {venta_id} no encontrada."
             )
+
+        es_dueno = (
+            venta.cliente.usuario_id is not None
+            and venta.cliente.usuario_id == usuario.id
+        )
+        if not es_dueno and not await _tiene_rol_personal(uow, usuario.id):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="No tiene permiso para ver esta venta.",
+            )
+
         return _build_venta_detail_read(venta)
+
+
+async def get_mis_ventas(
+    uow: VentasUnitOfWork,
+    usuario: Usuario,
+    params: ParametrosPagina,
+) -> Pagina[VentaListRead]:
+    """Ventas del cliente vinculado al usuario autenticado (sólo las propias)."""
+    async with uow:
+        total = await uow.ventas.count_por_usuario(usuario.id)
+        skip = (params.page - 1) * params.size
+        ventas = await uow.ventas.listar_por_usuario(
+            usuario.id, skip=skip, limit=params.size
+        )
+        items_read = [VentaListRead.model_validate(v) for v in ventas]
+        return paginar(items=items_read, total=total, page=params.page, size=params.size)
 
 
 async def create_venta(uow: VentasUnitOfWork, data: VentaCreate) -> VentaDetailRead:

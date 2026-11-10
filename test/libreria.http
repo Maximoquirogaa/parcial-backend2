@@ -1,145 +1,618 @@
-### ====================================================================
-### TRABAJO PRÁCTICO INTEGRAL - PROGRAMACIÓN III (UTN)
-### Librería: Catálogo, Clientes y Ventas con FastAPI y PostgreSQL
-### Suite de Casos de Prueba Mínimos (.http)
-### ====================================================================
+### =====================================================================
+### PARCIAL CAPÍTULOS 1 A 6 - CASOS C-01 A C-16
+### Librería API (FastAPI + SQLModel + PostgreSQL)
+###
+### ANTES DE EJECUTAR ESTE ARCHIVO:
+###   python seed.py
+###
+### Se usan varias sesiones a la vez. Cada login se nombra con # @name,
+### lleva # @no-cookie-jar y los pedidos de esa sesión envían el Set-Cookie
+### capturado con el encabezado Cookie: {{loginX.response.headers.Set-Cookie}}.
+###
+### El caso C-14 se demuestra con SQL en test/solo_agregado.sql (no es HTTP).
+### =====================================================================
 
 @baseUrl = http://127.0.0.1:8000
 
-### --------------------------------------------------------------------
-### Health Checks (Ejercicio 1)
-### --------------------------------------------------------------------
+@c02Email = c02_registro@example.com
+@c05Email = c05_rate_limit@example.com
+@c12Isbn = c12-978-950-00-0120-1
+@c13Isbn = c13-978-950-00-0130-0
+@c16Isbn = c16-978-950-00-0160-8
 
-### Health Live (No toca la base de datos)
-# Respuesta esperada: 200 OK
-# {"estado": "vivo"}
+### ---------------------------------------------------------------------
+### Salud (contexto)
+### ---------------------------------------------------------------------
+
+### Health live
+# Esperado: 200 OK - {"estado":"vivo"}
 GET {{baseUrl}}/health/live
 
-### Health Ready (Verifica conexión con SELECT 1)
-# Respuesta esperada: 200 OK
-# {"estado": "listo", "base_de_datos": "conectada"}
+### Health ready
+# Esperado: 200 OK - {"estado":"listo","base_de_datos":"conectada"}
 GET {{baseUrl}}/health/ready
 
 
-### --------------------------------------------------------------------
-### CASO C-01: Parámetro de ruta que no es entero
-### Demuestra: Validación automática de tipos de FastAPI (422 sin ejecutar el handler)
-### --------------------------------------------------------------------
+### =====================================================================
+### LOGINS Y SESIONES
+### =====================================================================
 
-# Respuesta esperada: 422 Unprocessable Entity
-GET {{baseUrl}}/editoriales/texto-no-entero
-
-
-### --------------------------------------------------------------------
-### CASO C-02: ISBN o Email repetido
-### Demuestra: Garantía de unicidad en la base de datos y traducción a 409 (RN-01, RN-02, RN-12)
-### --------------------------------------------------------------------
-
-### C-02A: Email de cliente duplicado (Tomás Ríos ya existe en seed)
-# Respuesta esperada: 409 Conflict
-# { "detail": "Ya existe un cliente registrado con ese correo electrónico." }
-POST {{baseUrl}}/clientes/
+### Login admin
+# @name loginAdmin
+# @no-cookie-jar
+POST {{baseUrl}}/auth/login
 Content-Type: application/json
 
 {
-  "nombre": "Tomás Duplicado",
-  "email": "tomas@example.com"
+  "email": "admin@example.com",
+  "password": "Admin1234!"
 }
+# Esperado: 200 OK
+# Set-Cookie: access_token=...; HttpOnly; SameSite=lax; Max-Age=3600
+# Cuerpo: {"mensaje":"Login exitoso.","debe_cambiar_password":false,"expira_en_segundos":3600}
 
-### C-02B: ISBN de libro repetido (Rayuela 978-950-07-0001-1 ya existe en seed)
-# Respuesta esperada: 409 Conflict
-# { "detail": "Error de integridad: verifique que el ISBN no esté repetido..." }
-POST {{baseUrl}}/libros/
+### Login admin2 (se usa en C-07)
+# @name loginAdmin2
+# @no-cookie-jar
+POST {{baseUrl}}/auth/login
 Content-Type: application/json
 
 {
-  "isbn": "978-950-07-0001-1",
-  "titulo": "Rayuela Edición Clon",
-  "precio": "25000.00",
-  "stock": 5,
+  "email": "admin2@example.com",
+  "password": "Admin1234!"
+}
+# Esperado: 200 OK
+
+### Login vendedor
+# @name loginVendedor
+# @no-cookie-jar
+POST {{baseUrl}}/auth/login
+Content-Type: application/json
+
+{
+  "email": "vendedor@example.com",
+  "password": "Vendedor1234!"
+}
+# Esperado: 200 OK - debe_cambiar_password=false
+
+### Login cliente Ana Paz
+# @name loginCliente
+# @no-cookie-jar
+POST {{baseUrl}}/auth/login
+Content-Type: application/json
+
+{
+  "email": "ana@example.com",
+  "password": "Cliente1234!"
+}
+# Esperado: 200 OK - debe_cambiar_password=false, rol CLIENTE
+
+### Login nuevo (cambio obligatorio pendiente)
+# @name loginNuevo
+# @no-cookie-jar
+POST {{baseUrl}}/auth/login
+Content-Type: application/json
+
+{
+  "email": "nuevo@example.com",
+  "password": "Provisoria1234!"
+}
+# Esperado: 200 OK - debe_cambiar_password=true
+
+### Identidad del admin (para no hardcodear el id)
+# @name yoAdmin
+# @no-cookie-jar
+GET {{baseUrl}}/auth/yo
+Cookie: {{loginAdmin.response.headers.Set-Cookie}}
+# Esperado: 200 OK - id=1, roles_vigentes=["ADMIN"], roles_token=["ADMIN"]
+
+### Identidad de admin2 (para C-07)
+# @name yoAdmin2
+# @no-cookie-jar
+GET {{baseUrl}}/auth/yo
+Cookie: {{loginAdmin2.response.headers.Set-Cookie}}
+# Esperado: 200 OK - id=2, roles_vigentes=["ADMIN"], roles_token=["ADMIN"]
+
+
+### =====================================================================
+### C-01: Parámetro de ruta no entero, con sesión iniciada
+### =====================================================================
+
+### C-01 - GET /libros/abc con cookie de admin
+# @name c01LibroNoEntero
+# @no-cookie-jar
+GET {{baseUrl}}/libros/abc
+Cookie: {{loginAdmin.response.headers.Set-Cookie}}
+# Esperado: 422 Unprocessable Entity (FastAPI valida `id: int` antes del handler)
+
+
+### =====================================================================
+### C-02: Registro; correo repetido de usuario y de cliente
+### =====================================================================
+
+### C-02A - Registro válido (email nuevo)
+# @name c02RegistroValido
+# @no-cookie-jar
+POST {{baseUrl}}/auth/registro
+Content-Type: application/json
+
+{
+  "email": "{{c02Email}}",
+  "password": "Registro1234!",
+  "nombre": "Cliente C-02"
+}
+# Esperado: 201 Created
+# {"id":6,"email":"c02_registro@example.com","nombre":"Cliente C-02"}
+# Deja exactamente una fila en usuario, una en asignacion_rol (CLIENTE) y una en cliente.
+
+### C-02B - El mismo correo otra vez como usuario
+# @name c02RepetidoUsuario
+# @no-cookie-jar
+POST {{baseUrl}}/auth/registro
+Content-Type: application/json
+
+{
+  "email": "{{c02Email}}",
+  "password": "Registro1234!",
+  "nombre": "Cliente C-02 Repetido"
+}
+# Esperado: 409 Conflict
+# {"detail":"Ya existe un usuario o cliente registrado con ese correo electrónico."}
+# El registro rechazado no deja filas sueltas (todo ocurre en una transacción).
+
+### C-02C - Correo que ya existe como cliente (Lucía Fernández, sin usuario)
+# @name c02RepetidoCliente
+# @no-cookie-jar
+POST {{baseUrl}}/auth/registro
+Content-Type: application/json
+
+{
+  "email": "lucia@example.com",
+  "password": "Registro1234!",
+  "nombre": "Lucía Duplicada"
+}
+# Esperado: 409 Conflict
+# {"detail":"Ya existe un usuario o cliente registrado con ese correo electrónico."}
+# La unicidad la garantiza cliente.email en la base, no una consulta previa.
+
+
+### =====================================================================
+### C-03: La cookie del login
+### =====================================================================
+
+### C-03A - Forma de la cookie (ver el loginAdmin / loginVendedor de arriba)
+# Esperado en Set-Cookie:
+#   access_token=<jwt>; HttpOnly; SameSite=lax; Max-Age=3600; Path=/
+# Esperado en el cuerpo: NO aparece la palabra "token"; sólo mensaje,
+# debe_cambiar_password y expira_en_segundos.
+
+### C-03B - Sin cookie no hay sesión
+# @name c03SinCookie
+# @no-cookie-jar
+GET {{baseUrl}}/auth/yo
+# Esperado: 401 Unauthorized
+# {"detail":"No autenticado. Se requiere cookie de sesión."}
+
+### C-03C - Authorization: Bearer sin cookie tampoco sirve
+# @name c03BearerSinCookie
+# @no-cookie-jar
+GET {{baseUrl}}/auth/yo
+Authorization: Bearer token-invalido-o-valido-que-no-importa
+# Esperado: 401 Unauthorized
+# La aplicación lee el token SÓLO de la cookie access_token.
+
+
+### =====================================================================
+### C-04: Password mala vs. correo inexistente (mismo cuerpo y tiempo)
+### =====================================================================
+
+### C-04A - Correo existente (admin2) con contraseña incorrecta
+# @name c04PasswordMala
+# @no-cookie-jar
+POST {{baseUrl}}/auth/login
+Content-Type: application/json
+
+{
+  "email": "admin2@example.com",
+  "password": "PasswordIncorrecta1234!"
+}
+# Esperado: 401 Unauthorized
+# {"detail":"Credenciales inválidas."}
+# Tiempo comparable al de C-04B porque se verifica un hash bcrypt real.
+
+### C-04B - Correo inexistente
+# @name c04CorreoInexistente
+# @no-cookie-jar
+POST {{baseUrl}}/auth/login
+Content-Type: application/json
+
+{
+  "email": "c04_no_existe@example.com",
+  "password": "PasswordIncorrecta1234!"
+}
+# Esperado: 401 Unauthorized
+# {"detail":"Credenciales inválidas."}
+# Mismo cuerpo que C-04A. El tiempo es parecido: ante un correo inexistente
+# se verifica un hash ficticio con el mismo costo bcrypt (mitigación de timing).
+# Comentario de evidencia: restar los tiempos de ambas respuestas; la diferencia
+# debe ser del orden del ruido, no de "0 ms" contra "200 ms".
+
+
+### =====================================================================
+### C-05: Seis intentos fallidos seguidos -> rate limit
+### =====================================================================
+# Email dedicado para no contaminar los logins válidos. Tras 5 fallos en 60 s
+# el sexto pedido ni siquiera calcula bcrypt: responde 429 en pocos ms.
+# Los 5 fallos quedan registrados en intento_acceso con exitoso=false.
+# Si se re-ejecuta sin seed, esperar 60 s o correr python seed.py de nuevo.
+
+### C-05 - Intento fallido 1
+# @name c05Fallo1
+# @no-cookie-jar
+POST {{baseUrl}}/auth/login
+Content-Type: application/json
+
+{
+  "email": "{{c05Email}}",
+  "password": "Mala1234!"
+}
+# Esperado: 401 Unauthorized - {"detail":"Credenciales inválidas."}
+
+### C-05 - Intento fallido 2
+# @name c05Fallo2
+# @no-cookie-jar
+POST {{baseUrl}}/auth/login
+Content-Type: application/json
+
+{
+  "email": "{{c05Email}}",
+  "password": "Mala1234!"
+}
+# Esperado: 401 Unauthorized
+
+### C-05 - Intento fallido 3
+# @name c05Fallo3
+# @no-cookie-jar
+POST {{baseUrl}}/auth/login
+Content-Type: application/json
+
+{
+  "email": "{{c05Email}}",
+  "password": "Mala1234!"
+}
+# Esperado: 401 Unauthorized
+
+### C-05 - Intento fallido 4
+# @name c05Fallo4
+# @no-cookie-jar
+POST {{baseUrl}}/auth/login
+Content-Type: application/json
+
+{
+  "email": "{{c05Email}}",
+  "password": "Mala1234!"
+}
+# Esperado: 401 Unauthorized
+
+### C-05 - Intento fallido 5
+# @name c05Fallo5
+# @no-cookie-jar
+POST {{baseUrl}}/auth/login
+Content-Type: application/json
+
+{
+  "email": "{{c05Email}}",
+  "password": "Mala1234!"
+}
+# Esperado: 401 Unauthorized (queda el quinto fallo en intento_acceso)
+
+### C-05 - Sexto intento: bloqueado por rate limit
+# @name c05SextoBloqueado
+# @no-cookie-jar
+POST {{baseUrl}}/auth/login
+Content-Type: application/json
+
+{
+  "email": "{{c05Email}}",
+  "password": "Mala1234!"
+}
+# Esperado: 429 Too Many Requests
+# {"detail":"Demasiados intentos fallidos. Intente nuevamente en 60 segundos."}
+# Encabezado: Retry-After: 60
+# Evidencia SQL (5 filas):
+#   SELECT email, exitoso, count(*) FROM intento_acceso
+#   WHERE email = 'c05_rate_limit@example.com'
+#   GROUP BY email, exitoso;
+#   -> exitoso=false, count=5
+
+
+### =====================================================================
+### C-06: 401 contra 403, y lo propio
+### =====================================================================
+
+### C-06A - Sin sesión: 401
+# @name c06SinSesion
+# @no-cookie-jar
+GET {{baseUrl}}/ventas/1
+# Esperado: 401 Unauthorized
+# {"detail":"No autenticado. Se requiere cookie de sesión."}
+
+### C-06B - Un vendedor no puede crear libros: 403
+# @name c06VendedorCreaLibro
+# @no-cookie-jar
+POST {{baseUrl}}/libros/
+Cookie: {{loginVendedor.response.headers.Set-Cookie}}
+Content-Type: application/json
+
+{
+  "isbn": "c06-978-950-00-0600-0",
+  "titulo": "Libro que el vendedor no puede crear",
+  "precio": "10000.00",
+  "stock_inicial": 1,
   "editorial_id": 1,
   "genero_id": 1,
   "autores": [
     { "autor_id": 1, "rol": "autor", "orden": 1 }
   ]
 }
+# Esperado: 403 Forbidden
+# {"detail":"Acceso denegado. Se requiere uno de los roles: ADMIN."}
 
-
-### --------------------------------------------------------------------
-### CASO C-03: Segundo perfil para el mismo cliente
-### Demuestra: Restricción 1 a 0..1 con cliente_id UNIQUE en perfil_cliente (RN-09)
-### --------------------------------------------------------------------
-
-### C-03A: Crear primer perfil válido para el cliente 1
-# Respuesta esperada: 201 Created
-POST {{baseUrl}}/clientes/1/perfil
-Content-Type: application/json
-
-{
-  "telefono": "+54 11 4455-6677",
-  "direccion": "Av. Corrientes 1234, CABA"
-}
-
-### C-03B: Intentar crear un segundo perfil para el mismo cliente 1
-# Respuesta esperada: 409 Conflict
-# { "detail": "El cliente ya cuenta con un perfil registrado (un cliente solo puede tener un perfil)." }
-POST {{baseUrl}}/clientes/1/perfil
-Content-Type: application/json
-
-{
-  "telefono": "+54 11 9988-7766",
-  "direccion": "Calle Falsa 123"
-}
-
-
-### --------------------------------------------------------------------
-### CASO C-04: Libro con una editorial o un autor inexistente
-### Demuestra: Rechazo por clave foránea sin realizar consultas SELECT previas (Ejercicio 5)
-### --------------------------------------------------------------------
-
-### C-04A: Libro con editorial_id inexistente (9999)
-# Respuesta esperada: 409 Conflict
-POST {{baseUrl}}/libros/
-Content-Type: application/json
-
-{
-  "isbn": "978-987-00-9999-1",
-  "titulo": "Libro Fantasma Editorial",
-  "precio": "15000.00",
-  "stock": 3,
-  "editorial_id": 9999,
-  "genero_id": 1,
-  "autores": [
-    { "autor_id": 1, "rol": "autor", "orden": 1 }
-  ]
-}
-
-### C-04B: Libro con autor_id inexistente (9999)
-# Respuesta esperada: 409 Conflict
-POST {{baseUrl}}/libros/
-Content-Type: application/json
-
-{
-  "isbn": "978-987-00-9999-2",
-  "titulo": "Libro Fantasma Autor",
-  "precio": "18000.00",
-  "stock": 3,
-  "editorial_id": 1,
-  "genero_id": 1,
-  "autores": [
-    { "autor_id": 9999, "rol": "autor", "orden": 1 }
-  ]
-}
-
-
-### --------------------------------------------------------------------
-### CASO C-05: Venta con un libro o un cliente inexistente
-### Demuestra: Validación relacional y respuesta 409
-### --------------------------------------------------------------------
-
-### C-05A: Venta con cliente inexistente (9999)
-# Respuesta esperada: 409 Conflict
+### C-06C - Crear una venta de Ana Paz para probar "lo propio"
+# @name ventaAna
+# @no-cookie-jar
 POST {{baseUrl}}/ventas/
+Cookie: {{loginVendedor.response.headers.Set-Cookie}}
+Content-Type: application/json
+
+{
+  "cliente_id": 3,
+  "renglones": [
+    { "libro_id": 2, "cantidad": 1 }
+  ]
+}
+# Esperado: 201 Created
+# total=30000.00, cliente Ana Paz, 1 renglón de Antología de la literatura fantástica.
+
+### C-06D - La cliente Ana ve SU venta: 200
+# @name c06Propia
+# @no-cookie-jar
+GET {{baseUrl}}/ventas/{{ventaAna.response.body.id}}
+Cookie: {{loginCliente.response.headers.Set-Cookie}}
+# Esperado: 200 OK
+# Cuerpo con cliente.email = ana@example.com y el renglón de la venta de Ana.
+
+### C-06E - La cliente Ana NO ve la venta de Lucía: 403
+# @name c06Ajena
+# @no-cookie-jar
+GET {{baseUrl}}/ventas/1
+Cookie: {{loginCliente.response.headers.Set-Cookie}}
+# Esperado: 403 Forbidden
+# La venta 1 pertenece a Lucía Fernández (cliente_id=1); Ana Paz es cliente_id=3.
+# NOTA: si el backend actual no implementa la verificación de dueño en el
+# servicio de ventas, este pedido devolverá 200; el resultado esperado por la
+# consigna (y por C-06) es 403. Ajustar el servicio, no el archivo .http.
+
+
+### =====================================================================
+### C-07: Revocar un rol con la sesión abierta; vencimientos inválidos
+### =====================================================================
+# Se revoca el rol ADMIN de admin2 usando la sesión de admin. La cookie de
+# admin2 sigue siendo válida (el JWT no vence), pero sus roles se consultan en
+# la base en cada petición y ya no tiene ninguno vigente.
+
+### C-07A - Revocar ADMIN de admin2 (la sesión de admin2 queda abierta)
+# @name c07RevocarAdmin2
+# @no-cookie-jar
+DELETE {{baseUrl}}/usuarios/{{yoAdmin2.response.body.id}}/roles/ADMIN
+Cookie: {{loginAdmin.response.headers.Set-Cookie}}
+# Esperado: 200 OK
+# {"mensaje":"Rol 'ADMIN' revocado correctamente."}
+
+### C-07B - La misma cookie de admin2 en la petición siguiente: 403
+# @name c07Admin2Bloqueado
+# @no-cookie-jar
+GET {{baseUrl}}/clientes/
+Cookie: {{loginAdmin2.response.headers.Set-Cookie}}
+# Esperado: 403 Forbidden
+# {"detail":"Acceso denegado. Se requiere uno de los roles: VENDEDOR, ADMIN."}
+# Los roles del token no conceden permisos por sí solos.
+
+### C-07C - /auth/yo muestra la diferencia: token vs. base
+# @name c07YoAdmin2
+# @no-cookie-jar
+GET {{baseUrl}}/auth/yo
+Cookie: {{loginAdmin2.response.headers.Set-Cookie}}
+# Esperado: 200 OK
+# {"id":2,"email":"admin2@example.com", ...,
+#  "roles_vigentes": [], "roles_token": ["ADMIN"]}
+# La fila de asignacion_rol NO se borró: sigue con revocada_en no nulo.
+
+### C-07D - Asignar un rol con vencimiento en el pasado: 422
+# @name c07VencimientoPasado
+# @no-cookie-jar
+POST {{baseUrl}}/usuarios/{{yoAdmin2.response.body.id}}/roles
+Cookie: {{loginAdmin.response.headers.Set-Cookie}}
+Content-Type: application/json
+
+{
+  "rol": "VENDEDOR",
+  "vence_en": "2020-01-01T00:00:00Z"
+}
+# Esperado: 422 Unprocessable Entity
+# {"detail":"El campo 'vence_en' debe ser una fecha futura."}
+
+### C-07E - Asignar un rol sin zona horaria: 422
+# @name c07SinZonaHoraria
+# @no-cookie-jar
+POST {{baseUrl}}/usuarios/{{yoAdmin2.response.body.id}}/roles
+Cookie: {{loginAdmin.response.headers.Set-Cookie}}
+Content-Type: application/json
+
+{
+  "rol": "VENDEDOR",
+  "vence_en": "2030-01-01T12:00:00"
+}
+# Esperado: 422 Unprocessable Entity
+# {"detail":"El campo 'vence_en' debe incluir información de zona horaria."}
+
+
+### =====================================================================
+### C-08: Autoprotección del administrador
+### =====================================================================
+
+### C-08 - El admin intenta revocarse su propio ADMIN: 409
+# @name c08AutoRevocacion
+# @no-cookie-jar
+DELETE {{baseUrl}}/usuarios/{{yoAdmin.response.body.id}}/roles/ADMIN
+Cookie: {{loginAdmin.response.headers.Set-Cookie}}
+# Esperado: 409 Conflict
+# {"detail":"Un administrador no puede revocar su propio rol ADMIN."}
+# El id se obtiene de GET /auth/yo (en el seed, admin es el id 1).
+
+
+### =====================================================================
+### C-09: Cambio obligatorio de contraseña
+### =====================================================================
+
+### C-09A - nuevo@example.com está bloqueado en una ruta protegida: 403
+# @name c09Bloqueado
+# @no-cookie-jar
+GET {{baseUrl}}/clientes/
+Cookie: {{loginNuevo.response.headers.Set-Cookie}}
+# Esperado: 403 Forbidden
+# {"detail":"Debe cambiar su contraseña antes de continuar."}
+
+### C-09B - /auth sigue funcionando mientras el cambio está pendiente: 200
+# @name c09AuthFunciona
+# @no-cookie-jar
+GET {{baseUrl}}/auth/yo
+Cookie: {{loginNuevo.response.headers.Set-Cookie}}
+# Esperado: 200 OK
+# {"email":"nuevo@example.com","debe_cambiar_password":true,...}
+
+### C-09C - Cambiar la contraseña provisoria
+# @name c09CambiarPassword
+# @no-cookie-jar
+POST {{baseUrl}}/auth/cambiar-password
+Cookie: {{loginNuevo.response.headers.Set-Cookie}}
+Content-Type: application/json
+
+{
+  "password_actual": "Provisoria1234!",
+  "password_nueva": "NuevaClave1234!"
+}
+# Esperado: 200 OK
+# {"mensaje":"Contraseña actualizada correctamente."}
+
+### C-09D - La MISMA cookie ya accede a las rutas protegidas: 200
+# @name c09YaAccede
+# @no-cookie-jar
+GET {{baseUrl}}/clientes/
+Cookie: {{loginNuevo.response.headers.Set-Cookie}}
+# Esperado: 200 OK
+# No hace falta volver a iniciar sesión: la cookie no cambió y
+# debe_cambiar_password pasó a false en la base.
+
+### C-09E - /auth/yo confirma debe_cambiar_password=false
+# @name c09YoDespues
+# @no-cookie-jar
+GET {{baseUrl}}/auth/yo
+Cookie: {{loginNuevo.response.headers.Set-Cookie}}
+# Esperado: 200 OK - debe_cambiar_password=false
+
+
+### =====================================================================
+### C-10: Venta válida con dos renglones
+### =====================================================================
+
+### C-10 - Venta de 1 Antología + 1 Ficciones (precios copiados)
+# @name ventaC10
+# @no-cookie-jar
+POST {{baseUrl}}/ventas/
+Cookie: {{loginVendedor.response.headers.Set-Cookie}}
+Content-Type: application/json
+
+{
+  "cliente_id": 1,
+  "renglones": [
+    { "libro_id": 2, "cantidad": 1 },
+    { "libro_id": 3, "cantidad": 1 }
+  ]
+}
+# Esperado: 201 Created
+# total = 30000.00 + 22000.00 = 52000.00
+# renglones[0]: libro 2, precio_unitario 30000.00, subtotal 30000.00
+# renglones[1]: libro 3, precio_unitario 22000.00, subtotal 22000.00
+# El stock de Antología baja en 1 y el de Ficciones en 1; se crean 2
+# movimientos con cantidad -1 y venta_id = {{ventaC10.response.body.id}}.
+# En la consola del servidor (SQL_ECHO=true) el aviso
+# "[Segundo Plano] Comprobante de venta #... por $52000.00 ..." aparece DESPUÉS
+# de la línea de la respuesta 201.
+
+### C-10 - Movimientos del libro 2 para comprobar la salida
+# @name c10MovimientosAntologia
+# @no-cookie-jar
+GET {{baseUrl}}/libros/2/movimientos
+Cookie: {{loginAdmin.response.headers.Set-Cookie}}
+# Esperado: 200 OK - incluye el movimiento "Stock inicial" (+5) y el de la
+# venta C-10 (-1, venta_id igual al id de ventaC10).
+
+
+### =====================================================================
+### C-11: Venta con Rayuela (1, alcanza) y Bestiario (2, hay 1) -> 409
+### =====================================================================
+
+### C-11A - La venta entera se rechaza por stock insuficiente
+# @name c11StockInsuficiente
+# @no-cookie-jar
+POST {{baseUrl}}/ventas/
+Cookie: {{loginVendedor.response.headers.Set-Cookie}}
+Content-Type: application/json
+
+{
+  "cliente_id": 1,
+  "renglones": [
+    { "libro_id": 1, "cantidad": 1 },
+    { "libro_id": 5, "cantidad": 2 }
+  ]
+}
+# Esperado: 409 Conflict
+# {"detail":"Stock insuficiente para el libro 'Bestiario'. Stock disponible: 1, solicitado: 2."}
+# No hay venta nueva, ni renglones, ni descuentos, ni movimientos:
+# la validación ocurre antes de escribir y todo corre en una transacción.
+
+### C-11B - Rayuela sigue en 10
+# @name c11StockRayuela
+# @no-cookie-jar
+GET {{baseUrl}}/libros/1
+Cookie: {{loginAdmin.response.headers.Set-Cookie}}
+# Esperado: 200 OK - stock=10
+
+### C-11C - Bestiario sigue en 1
+# @name c11StockBestiario
+# @no-cookie-jar
+GET {{baseUrl}}/libros/5
+Cookie: {{loginAdmin.response.headers.Set-Cookie}}
+# Esperado: 200 OK - stock=1
+
+### C-11D - La suma de movimientos sigue coincidiendo con el stock
+# @name c11MovimientosRayuela
+# @no-cookie-jar
+GET {{baseUrl}}/libros/1/movimientos?size=100
+Cookie: {{loginAdmin.response.headers.Set-Cookie}}
+# Esperado: 200 OK - movimientos +11 (Stock inicial) y -1 (Venta 1); suma=10.
+
+
+### =====================================================================
+### C-12: Cliente inexistente, libro inexistente y libro dado de baja
+### =====================================================================
+
+### C-12A - Cliente inexistente: 409
+# @name c12ClienteInexistente
+# @no-cookie-jar
+POST {{baseUrl}}/ventas/
+Cookie: {{loginVendedor.response.headers.Set-Cookie}}
 Content-Type: application/json
 
 {
@@ -148,10 +621,14 @@ Content-Type: application/json
     { "libro_id": 1, "cantidad": 1 }
   ]
 }
+# Esperado: 409 Conflict
+# {"detail":"Error de integridad: el cliente indicado no existe o los datos son inválidos."}
 
-### C-05B: Venta con libro inexistente (9999)
-# Respuesta esperada: 409 Conflict
+### C-12B - Libro inexistente: 409
+# @name c12LibroInexistente
+# @no-cookie-jar
 POST {{baseUrl}}/ventas/
+Cookie: {{loginVendedor.response.headers.Set-Cookie}}
 Content-Type: application/json
 
 {
@@ -160,74 +637,336 @@ Content-Type: application/json
     { "libro_id": 9999, "cantidad": 1 }
   ]
 }
+# Esperado: 409 Conflict
+# {"detail":"El libro con ID 9999 no existe en el catálogo o fue dado de baja."}
 
+### C-12C - Crear un libro para darlo de baja
+# @name c12Libro
+# @no-cookie-jar
+POST {{baseUrl}}/libros/
+Cookie: {{loginAdmin.response.headers.Set-Cookie}}
+Content-Type: application/json
 
-### --------------------------------------------------------------------
-### CASO C-06: Venta válida con dos renglones
-### Demuestra: Precios copiados de la base (RN-06), total calculado (RN-07)
-### y aviso simulado en BackgroundTasks (Ejercicio 7)
-### Cálculo: Libro 1 ($25000 x 2 = $50000) + Libro 2 ($27000 x 1 = $27000) = Total $77000.00
-### --------------------------------------------------------------------
+{
+  "isbn": "{{c12Isbn}}",
+  "titulo": "Libro C-12 para dar de baja",
+  "precio": "10000.00",
+  "stock_inicial": 1,
+  "editorial_id": 1,
+  "genero_id": 1,
+  "autores": [
+    { "autor_id": 1, "rol": "autor", "orden": 1 }
+  ]
+}
+# Esperado: 201 Created - stock=1, movimiento "Stock inicial" (+1)
 
-# Respuesta esperada: 201 Created
+### C-12D - Dar de baja el libro (baja lógica): 204
+# @name c12Baja
+# @no-cookie-jar
+DELETE {{baseUrl}}/libros/{{c12Libro.response.body.id}}
+Cookie: {{loginAdmin.response.headers.Set-Cookie}}
+# Esperado: 204 No Content
+
+### C-12E - Vender el libro dado de baja: 409
+# @name c12LibroDadoDeBaja
+# @no-cookie-jar
 POST {{baseUrl}}/ventas/
+Cookie: {{loginVendedor.response.headers.Set-Cookie}}
 Content-Type: application/json
 
 {
   "cliente_id": 1,
   "renglones": [
-    { "libro_id": 1, "cantidad": 2 },
+    { "libro_id": {{c12Libro.response.body.id}}, "cantidad": 1 }
+  ]
+}
+# Esperado: 409 Conflict
+# {"detail":"El libro con ID ... no existe en el catálogo o fue dado de baja."}
+# Sin escrituras: no hay venta, renglón ni movimiento nuevos.
+
+
+### =====================================================================
+### C-13: Reponer, dar de baja, recargar el mismo ISBN
+### =====================================================================
+
+### C-13A - Crear el libro C-13
+# @name c13Libro
+# @no-cookie-jar
+POST {{baseUrl}}/libros/
+Cookie: {{loginAdmin.response.headers.Set-Cookie}}
+Content-Type: application/json
+
+{
+  "isbn": "{{c13Isbn}}",
+  "titulo": "Libro C-13",
+  "precio": "15000.00",
+  "stock_inicial": 2,
+  "editorial_id": 1,
+  "genero_id": 1,
+  "autores": [
+    { "autor_id": 1, "rol": "autor", "orden": 1 }
+  ]
+}
+# Esperado: 201 Created - stock=2
+
+### C-13B - Venta vieja que referencia el libro C-13
+# @name ventaC13
+# @no-cookie-jar
+POST {{baseUrl}}/ventas/
+Cookie: {{loginVendedor.response.headers.Set-Cookie}}
+Content-Type: application/json
+
+{
+  "cliente_id": 1,
+  "renglones": [
+    { "libro_id": {{c13Libro.response.body.id}}, "cantidad": 1 }
+  ]
+}
+# Esperado: 201 Created - total=15000.00, stock del libro queda en 1
+
+### C-13C - Reponer stock: 200 y movimiento nuevo
+# @name c13Reponer
+# @no-cookie-jar
+POST {{baseUrl}}/libros/{{c13Libro.response.body.id}}/reponer
+Cookie: {{loginAdmin.response.headers.Set-Cookie}}
+Content-Type: application/json
+
+{
+  "cantidad": 3,
+  "motivo": "Compra"
+}
+# Esperado: 200 OK - movimiento cantidad=+3, motivo="Compra"; stock pasa a 4
+
+### C-13D - Dar de baja el libro: 204
+# @name c13Baja
+# @no-cookie-jar
+DELETE {{baseUrl}}/libros/{{c13Libro.response.body.id}}
+Cookie: {{loginAdmin.response.headers.Set-Cookie}}
+# Esperado: 204 No Content
+
+### C-13E - El libro ya no aparece en el catálogo
+# @name c13Catalogo
+# @no-cookie-jar
+GET {{baseUrl}}/libros/?titulo=C-13&size=10
+Cookie: {{loginAdmin.response.headers.Set-Cookie}}
+# Esperado: 200 OK - total=0, items=[]
+
+### C-13F - Re-alta con el MISMO ISBN: 201
+# @name c13Realta
+# @no-cookie-jar
+POST {{baseUrl}}/libros/
+Cookie: {{loginAdmin.response.headers.Set-Cookie}}
+Content-Type: application/json
+
+{
+  "isbn": "{{c13Isbn}}",
+  "titulo": "Libro C-13 (nueva edición)",
+  "precio": "16000.00",
+  "stock_inicial": 1,
+  "editorial_id": 1,
+  "genero_id": 1,
+  "autores": [
+    { "autor_id": 1, "rol": "autor", "orden": 1 }
+  ]
+}
+# Esperado: 201 Created
+# El índice único parcial (isbn WHERE borrado_en IS NULL) permite reutilizar
+# el ISBN de un libro dado de baja.
+
+### C-13G - Un segundo libro VIGENTE con el mismo ISBN: 409
+# @name c13SegundoVigente
+# @no-cookie-jar
+POST {{baseUrl}}/libros/
+Cookie: {{loginAdmin.response.headers.Set-Cookie}}
+Content-Type: application/json
+
+{
+  "isbn": "{{c13Isbn}}",
+  "titulo": "Libro C-13 duplicado vigente",
+  "precio": "17000.00",
+  "stock_inicial": 1,
+  "editorial_id": 1,
+  "genero_id": 1,
+  "autores": [
+    { "autor_id": 1, "rol": "autor", "orden": 1 }
+  ]
+}
+# Esperado: 409 Conflict
+# {"detail":"Error de integridad: verifique que el ISBN no esté repetido..."}
+
+### C-13H - La venta vieja sigue mostrando el título del libro dado de baja
+# @name c13VentaVieja
+# @no-cookie-jar
+GET {{baseUrl}}/ventas/{{ventaC13.response.body.id}}
+Cookie: {{loginAdmin.response.headers.Set-Cookie}}
+# Esperado: 200 OK - renglones[0].titulo = "Libro C-13"
+# El renglón conserva libro_id y el título se lee del libro histórico.
+
+
+### =====================================================================
+### C-14: UPDATE y DELETE sobre movimiento_stock (va en SQL, no en HTTP)
+### =====================================================================
+# Ejecutar con psql:
+#   psql "postgresql://postgres:postgres@localhost:5432/libreria_db" \
+#        -f test/solo_agregado.sql
+#
+# Esperado:
+#   UPDATE movimiento_stock SET cantidad = 999 WHERE id = 1;
+#     -> ERROR: La tabla movimiento_stock es de solo agregado:
+#        no se permiten operaciones de UPDATE ni DELETE. (SQLSTATE restrict_violation)
+#   DELETE FROM movimiento_stock WHERE id = 1;
+#     -> ERROR: La tabla movimiento_stock es de solo agregado:
+#        no se permiten operaciones de UPDATE ni DELETE. (SQLSTATE restrict_violation)
+#
+# El trigger es BEFORE UPDATE OR DELETE FOR EACH ROW; los INSERT del seed y de
+# las ventas no se ven afectados.
+
+
+### =====================================================================
+### C-15: Detalle de venta con 2 y con 4 renglones (misma cantidad de SQL)
+### =====================================================================
+
+### C-15A - Venta con 2 renglones
+# @name ventaC15Dos
+# @no-cookie-jar
+POST {{baseUrl}}/ventas/
+Cookie: {{loginVendedor.response.headers.Set-Cookie}}
+Content-Type: application/json
+
+{
+  "cliente_id": 1,
+  "renglones": [
+    { "libro_id": 1, "cantidad": 1 },
     { "libro_id": 2, "cantidad": 1 }
   ]
 }
+# Esperado: 201 Created - 2 renglones
+
+### C-15B - Venta con 4 renglones
+# @name ventaC15Cuatro
+# @no-cookie-jar
+POST {{baseUrl}}/ventas/
+Cookie: {{loginVendedor.response.headers.Set-Cookie}}
+Content-Type: application/json
+
+{
+  "cliente_id": 1,
+  "renglones": [
+    { "libro_id": 1, "cantidad": 1 },
+    { "libro_id": 2, "cantidad": 1 },
+    { "libro_id": 3, "cantidad": 1 },
+    { "libro_id": 4, "cantidad": 1 }
+  ]
+}
+# Esperado: 201 Created - 4 renglones
+
+### C-15C - Detalle de la venta de 2 renglones
+# @name c15DetalleDos
+# @no-cookie-jar
+GET {{baseUrl}}/ventas/{{ventaC15Dos.response.body.id}}
+Cookie: {{loginAdmin.response.headers.Set-Cookie}}
+# Esperado: 200 OK
+# Evidencia de consola con SQL_ECHO=true (arrancar uvicorn con SQL_ECHO=true):
+#   Query 1: SELECT venta WHERE id = ...
+#   Query 2: SELECT renglon_venta WHERE venta_id IN (...)
+#   Query 3: SELECT cliente WHERE id IN (...)
+#   Query 4: SELECT libro WHERE id IN (...)
+#   -> 4 consultas fijas, sin N+1.
+
+### C-15D - Detalle de la venta de 4 renglones
+# @name c15DetalleCuatro
+# @no-cookie-jar
+GET {{baseUrl}}/ventas/{{ventaC15Cuatro.response.body.id}}
+Cookie: {{loginAdmin.response.headers.Set-Cookie}}
+# Esperado: 200 OK
+# Evidencia de consola con SQL_ECHO=true:
+#   Query 1: SELECT venta WHERE id = ...
+#   Query 2: SELECT renglon_venta WHERE venta_id IN (...)
+#   Query 3: SELECT cliente WHERE id IN (...)
+#   Query 4: SELECT libro WHERE id IN (...)
+#   -> las MISMAS 4 consultas que con 2 renglones. El detalle no crece con
+#      la cantidad de renglones (selectinload para colecciones, sin N+1).
+# Guardar ambas salidas en evidencia/ (requisito del parcial).
 
 
-### --------------------------------------------------------------------
-### CASO C-07: Detalle de un libro y de una venta (Lecturas sin N+1)
-### Demuestra: Carga anticipada con joinedload y selectinload garantizando
-### un número constante de consultas en consola sin importar la cantidad de relaciones
-### --------------------------------------------------------------------
+### =====================================================================
+### C-16: Búsqueda, paginación, PATCH parcial y PATCH del stock
+### =====================================================================
 
-### C-07A: Detalle de Libro (Libro 3 tiene 2 coautores: Bioy Casares y Silvina Ocampo)
-# Respuesta esperada: 200 OK con editorial, género y autores ordenados
-GET {{baseUrl}}/libros/3
-
-### C-07B: Detalle de Venta recién creada (Venta 1 con cliente y renglones)
-# Respuesta esperada: 200 OK con cliente y renglones con subtotales
-GET {{baseUrl}}/ventas/1
-
-
-### --------------------------------------------------------------------
-### CASO C-08: Búsqueda por título con inyección SQL (' OR '1'='1)
-### Demuestra: Consulta parametrizada segura con parámetro ligado (RN-11)
-### --------------------------------------------------------------------
-
-# Respuesta esperada: 200 OK con lista vacía [] (No se inyecta la cláusula SQL)
+### C-16A - Inyección SQL en el filtro de título: lista vacía, total 0
+# @name c16Inyeccion
+# @no-cookie-jar
 GET {{baseUrl}}/libros/?titulo=%27%20OR%20%271%27%3D%271
+# Esperado: 200 OK
+# {"items":[],"total":0,"page":1,"size":20,"pages":1}
+# El valor viaja como parámetro ligado; no se concatena en el SQL.
 
+### C-16B - Filtro por título con size=1: total 1, pages 1
+# @name c16FiltroFicc
+# @no-cookie-jar
+GET {{baseUrl}}/libros/?titulo=ficc&size=1
+# Esperado: 200 OK
+# {"items":[{"titulo":"Ficciones",...}],"total":1,"page":1,"size":1,"pages":1}
+# El filtro es insensible a mayúsculas y busca por parte del título.
 
-### --------------------------------------------------------------------
-### Endpoints CRUD adicionales para verificación integral
-### --------------------------------------------------------------------
+### C-16C - Pedir la página 2 cuando sólo hay 1: 422
+# @name c16PaginaFueraDeRango
+# @no-cookie-jar
+GET {{baseUrl}}/libros/?titulo=ficc&size=1&page=2
+# Esperado: 422 Unprocessable Entity
+# {"detail":"La página 2 supera la última página disponible (1)."}
 
-### Listado paginado de libros
-GET {{baseUrl}}/libros/?limit=10&offset=0
+### C-16D - size fuera del máximo: 422
+# @name c16SizeInvalido
+# @no-cookie-jar
+GET {{baseUrl}}/libros/?size=500
+# Esperado: 422 Unprocessable Entity
+# El parámetro size tiene le=100; 500 no llega al handler.
 
-### Filtrar libros por género
-GET {{baseUrl}}/libros/?genero_id=1
+### C-16E - Crear un libro para el PATCH parcial
+# @name c16Libro
+# @no-cookie-jar
+POST {{baseUrl}}/libros/
+Cookie: {{loginAdmin.response.headers.Set-Cookie}}
+Content-Type: application/json
 
-### Detalle de cliente con su perfil precargado
-GET {{baseUrl}}/clientes/1
+{
+  "isbn": "{{c16Isbn}}",
+  "titulo": "Libro C-16 Original",
+  "precio": "10000.00",
+  "stock_inicial": 4,
+  "editorial_id": 1,
+  "genero_id": 1,
+  "autores": [
+    { "autor_id": 1, "rol": "autor", "orden": 1 }
+  ]
+}
+# Esperado: 201 Created - precio=10000.00, stock=4
 
-### Ventas del cliente 1
-GET {{baseUrl}}/clientes/1/ventas
+### C-16F - PATCH parcial: sólo cambia el título
+# @name c16PatchTitulo
+# @no-cookie-jar
+PATCH {{baseUrl}}/libros/{{c16Libro.response.body.id}}
+Cookie: {{loginAdmin.response.headers.Set-Cookie}}
+Content-Type: application/json
 
-### Libros de la editorial 1
-GET {{baseUrl}}/editoriales/1/libros
+{
+  "titulo": "Libro C-16 Actualizado"
+}
+# Esperado: 200 OK
+# {"titulo":"Libro C-16 Actualizado","precio":"10000.00","stock":4,...}
+# Sólo cambia lo enviado: precio y stock quedan intactos.
 
-### Libros del género 1
-GET {{baseUrl}}/generos/1/libros
+### C-16G - PATCH con stock: 422 (el stock no se toca por PATCH)
+# @name c16PatchStock
+# @no-cookie-jar
+PATCH {{baseUrl}}/libros/{{c16Libro.response.body.id}}
+Cookie: {{loginAdmin.response.headers.Set-Cookie}}
+Content-Type: application/json
 
-### Libros del autor 3 con su rol y orden
-GET {{baseUrl}}/autores/3/libros
-
+{
+  "stock": 5
+}
+# Esperado: 422 Unprocessable Entity
+# LibroUpdate tiene extra="forbid" y no declara `stock`: el campo sobra.
+# El stock sólo se modifica por el punto único de movimientos (reponer/venta).

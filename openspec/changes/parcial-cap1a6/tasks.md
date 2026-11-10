@@ -48,12 +48,12 @@
 
 ## 6. Autorización
 
-- [ ] 6.1 Implementar `app/core/dependencies.py` con `get_usuario_actual` (401 por cookie ausente, token inválido/vencido, usuario inexistente o inactivo) usando la sesión de la petición. Verificación: los cuatro escenarios devuelven 401 y una cookie válida devuelve el usuario.
-- [ ] 6.2 Implementar `requiere_rol(*roles)` consultando `asignacion_rol` vigente (`revocada_en IS NULL` y `vence_en` nulo o futuro) en cada petición y respondiendo 403. Verificación: revocar un rol con la sesión abierta hace que la siguiente petición dé 403 (C-07) y un rol declarado sólo en el token no concede permiso.
-- [ ] 6.3 Implementar el módulo `usuarios`: alta de personal con contraseña provisoria y `debe_cambiar_password=True`, consulta de roles, asignación con vencimiento opcional, revocación y listado paginado de eventos; cada cambio con su evento en la misma transacción. Verificación: alta 201, roles 200/404, asignación 201/409/422 y evento presente sólo si el cambio se confirmó.
+- [x] 6.1 Implementar `app/core/dependencies.py` con `get_usuario_actual` (401 por cookie ausente, token inválido/vencido, usuario inexistente o inactivo) usando la sesión de la petición. Verificación: los cuatro escenarios devuelven 401 y una cookie válida devuelve el usuario.
+- [x] 6.2 Implementar `requiere_rol(*roles)` consultando `asignacion_rol` vigente (`revocada_en IS NULL` y `vence_en` nulo o futuro) en cada petición y respondiendo 403. Verificación: revocar un rol con la sesión abierta hace que la siguiente petición dé 403 (C-07) y un rol declarado sólo en el token no concede permiso.
+- [x] 6.3 Implementar el módulo `usuarios`: alta de personal con contraseña provisoria y `debe_cambiar_password=True`, consulta de roles, asignación con vencimiento opcional, revocación y listado paginado de eventos; cada cambio con su evento en la misma transacción. Verificación: alta 201, roles 200/404, asignación 201/409/422 y evento presente sólo si el cambio se confirmó.
 - [ ] 6.4 Validar `vence_en` (con zona horaria y futura, 422), cerrar la fila vencida al reasignar y confiar en el índice único parcial para el 409. Verificación: vencimiento pasado y sin zona dan 422; reasignar un rol vencido crea una fila nueva y cierra la anterior.
-- [ ] 6.5 Implementar la autoprotección: un ADMIN no puede revocar su propio ADMIN ni dejar el sistema sin administradores vigentes (409). Verificación: el intento del administrador devuelve 409 y su asignación sigue vigente (C-08).
-- [ ] 6.6 Montar los dos grupos de rutas en `main.py` y la dependencia `requiere_cambio_resuelto` una sola vez sobre el grupo protegido; ubicar `health`, `auth` y catálogo en el abierto. Verificación: un usuario con cambio pendiente recibe 403 en el grupo protegido y puede usar `/auth`; tras el cambio, la misma cookie accede (C-09).
+- [x] 6.5 Implementar la autoprotección: un ADMIN no puede revocar su propio ADMIN ni dejar el sistema sin administradores vigentes (409). Verificación: el intento del administrador devuelve 409 y su asignación sigue vigente (C-08).
+- [x] 6.6 Montar los dos grupos de rutas en `main.py` y la dependencia `requiere_cambio_resuelto` una sola vez sobre el grupo protegido; ubicar `health`, `auth` y catálogo en el abierto. Verificación: un usuario con cambio pendiente recibe 403 en el grupo protegido y puede usar `/auth`; tras el cambio, la misma cookie accede (C-09).
 - [ ] 6.7 Implementar `GET /mis-ventas` y la verificación de dueño en el detalle de venta (personal o cliente dueño, 403 en otro caso, 404 inexistente) sin `requiere_rol` en el detalle. Verificación: cliente ve su venta 200 y la ajena 403; vendedor ve cualquiera (C-06).
 
 ## 7. Integridad
@@ -73,9 +73,9 @@
 
 ## 9. Seed y casos de prueba
 
-- [ ] 9.1 Reescribir `seed.py` para vaciar las tablas en orden de FK con `RESTART IDENTITY` y cargar usuarios (incluido `nuevo@example.com` con cambio pendiente), editoriales, géneros, autores, libros con stock inicial por movimiento, clientes (Lucía con perfil, Tomás sin usuario, Ana con usuario), la venta 1 con sus dos renglones y salidas de stock, y la línea de evento con actor SISTEMA. Verificación: `python seed.py` deja `stock = suma(movimientos)` en los cinco libros y los totales de la venta 1 en 69000.00.
+- [x] 9.1 Reescribir `seed.py` para vaciar las tablas en orden de FK con `RESTART IDENTITY` y cargar usuarios (incluido `nuevo@example.com` con cambio pendiente), editoriales, géneros, autores, libros con stock inicial por movimiento, clientes (Lucía con perfil, Tomás sin usuario, Ana con usuario), la venta 1 con sus dos renglones y salidas de stock, y la línea de evento con actor SISTEMA. Verificación: `python seed.py` deja `stock = suma(movimientos)` en los cinco libros y los totales de la venta 1 en 69000.00.
 - [ ] 9.2 Actualizar `test/libreria.http` con los casos C-01 a C-13 y C-15/C-16, cada request con su resultado esperado en comentario, sesiones nombradas con `# @name` y `# @no-cookie-jar` más `Cookie` explícita donde se necesiten dos sesiones. Verificación: recorrer el archivo tras `python seed.py` reproduce cada resultado esperado.
-- [ ] 9.3 Escribir `test/solo_agregado.sql` con el `UPDATE` y el `DELETE` sobre `movimiento_stock` y el resultado esperado en comentario. Verificación: ejecutarlo en psql rechaza ambas sentencias y la evidencia queda guardada.
+- [x] 9.3 Escribir `test/solo_agregado.sql` con el `UPDATE` y el `DELETE` sobre `movimiento_stock` y el resultado esperado en comentario. Verificación: ejecutarlo en psql rechaza ambas sentencias y la evidencia queda guardada.
 - [ ] 9.4 Agregar a `test/` la evidencia de C-14 (psql) y C-15 (consola con las consultas de 2 y 4 renglones). Verificación: los archivos están referenciados en el README y muestran los resultados exigidos.
 
 ## 10. Integración final

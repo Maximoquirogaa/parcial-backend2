@@ -302,13 +302,19 @@ def test_password_hash_never_exposed_in_read_schemas():
 # ============================================================================
 
 def get_all_app_routes(app):
-    routes = []
-    for r in app.routes:
-        if hasattr(r, "original_router"):
-            routes.extend(r.original_router.routes)
-        else:
-            routes.append(r)
-    return routes
+    def walk(routes):
+        for r in routes:
+            original_router = getattr(r, "original_router", None)
+            if original_router is not None:
+                yield from walk(original_router.routes)
+                continue
+            original_route = getattr(r, "original_route", None)
+            if original_route is not None:
+                yield original_route
+                continue
+            yield r
+
+    return list(walk(app.routes))
 
 
 def test_router_list_endpoints_return_pagina_model():
@@ -336,12 +342,28 @@ def test_router_list_endpoints_return_pagina_model():
 
 @pytest.mark.asyncio
 async def test_pagination_and_forbid_extra_via_http():
+    from app.core.dependencies import get_usuario_actual, requiere_cambio_resuelto
+
     session_mock = AsyncMock()
 
     async def override_session():
         yield session_mock
 
+    class _UsuarioFalso:
+        id = 1
+        email = "admin@example.com"
+        activo = True
+        debe_cambiar_password = False
+
+    async def override_usuario_actual():
+        return _UsuarioFalso()
+
+    async def override_cambio_resuelto():
+        return _UsuarioFalso()
+
     app.dependency_overrides[get_session] = override_session
+    app.dependency_overrides[get_usuario_actual] = override_usuario_actual
+    app.dependency_overrides[requiere_cambio_resuelto] = override_cambio_resuelto
     try:
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
             # 1. size=500 should be rejected with 422

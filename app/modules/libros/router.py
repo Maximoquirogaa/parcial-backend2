@@ -2,6 +2,7 @@ from typing import Optional
 from fastapi import APIRouter, Depends, Query, Response, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.database import get_session
+from app.core.dependencies import requiere_rol
 from app.core.paginacion import Pagina, ParametrosPagina, get_parametros_pagina
 from app.modules.libros.schemas import (
     LibroCreate,
@@ -22,7 +23,13 @@ from app.modules.libros.service import (
     update_libro,
 )
 
-router = APIRouter(prefix="/libros", tags=["Libros"])
+# Catálogo público (sin sesión) y mutaciones protegidas (ADMIN).
+router_publico = APIRouter(prefix="/libros", tags=["Libros"])
+router = APIRouter(
+    prefix="/libros",
+    tags=["Libros"],
+    dependencies=[Depends(requiere_rol("ADMIN"))],
+)
 
 
 def get_uow(session: AsyncSession = Depends(get_session)) -> LibrosUnitOfWork:
@@ -37,7 +44,7 @@ async def post_libro(
     return await create_libro(uow, payload)
 
 
-@router.get("/", response_model=Pagina[LibroListRead], status_code=status.HTTP_200_OK)
+@router_publico.get("/", response_model=Pagina[LibroListRead], status_code=status.HTTP_200_OK)
 async def list_libros(
     params: ParametrosPagina = Depends(get_parametros_pagina),
     titulo: Optional[str] = Query(None, description="Filtro insensible a mayúsculas por parte del título"),
@@ -52,7 +59,7 @@ async def list_libros(
     )
 
 
-@router.get("/{id}", response_model=LibroDetailRead, status_code=status.HTTP_200_OK)
+@router_publico.get("/{id}", response_model=LibroDetailRead, status_code=status.HTTP_200_OK)
 async def get_libro(
     id: int,
     uow: LibrosUnitOfWork = Depends(get_uow)
