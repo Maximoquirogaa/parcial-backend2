@@ -1,0 +1,88 @@
+=============================================================================
+CASO C-15: Detalle de una venta con 2 y con 4 renglones (SQL_ECHO)
+Demostración de consultas fijas (sin problema N+1) gracias a selectinload
+=============================================================================
+
+1. LLAMADA: GET /ventas/1 (Venta con 2 renglones)
+Total de consultas SQL emitidas: 6 consultas fijas
+
+[Consulta 1 - Autenticación]:
+SELECT usuario.id, usuario.email, usuario.password_hash, usuario.nombre, usuario.activo, usuario.debe_cambiar_password, usuario.creado_en 
+FROM usuario 
+WHERE usuario.email = $1::VARCHAR;
+
+[Consulta 2 - Venta base]:
+SELECT venta.id, venta.cliente_id, venta.fecha, venta.total 
+FROM venta 
+WHERE venta.id = $1::INTEGER;
+
+[Consulta 3 - Renglones vinculados (selectinload)]:
+SELECT renglon_venta.venta_id, renglon_venta.id, renglon_venta.libro_id, renglon_venta.cantidad, renglon_venta.precio_unitario 
+FROM renglon_venta 
+WHERE renglon_venta.venta_id IN ($1::INTEGER);
+
+[Consulta 4 - Cliente vinculado (selectinload)]:
+SELECT cliente.id, cliente.nombre, cliente.email, cliente.usuario_id 
+FROM cliente 
+WHERE cliente.id IN ($1::INTEGER);
+
+[Consulta 5 - Libros de los renglones (selectinload con IN)]:
+SELECT libro.id, libro.isbn, libro.titulo, libro.precio, libro.stock, libro.editorial_id, libro.genero_id, libro.borrado_en 
+FROM libro 
+WHERE libro.id IN ($1::INTEGER, $2::INTEGER);
+
+[Consulta 6 - Autorización (verificación rol en base)]:
+SELECT asignacion_rol.id 
+FROM asignacion_rol 
+WHERE asignacion_rol.usuario_id = $1::INTEGER 
+  AND asignacion_rol.rol IN ('VENDEDOR', 'ADMIN') 
+  AND asignacion_rol.revocada_en IS NULL 
+  AND (asignacion_rol.vence_en IS NULL OR asignacion_rol.vence_en > $2::TIMESTAMP WITH TIME ZONE) 
+LIMIT 1;
+
+-----------------------------------------------------------------------------
+
+2. LLAMADA: GET /ventas/2 (Venta con 4 renglones)
+Total de consultas SQL emitidas: 6 consultas fijas
+
+[Consulta 1 - Autenticación]:
+SELECT usuario.id, usuario.email, usuario.password_hash, usuario.nombre, usuario.activo, usuario.debe_cambiar_password, usuario.creado_en 
+FROM usuario 
+WHERE usuario.email = $1::VARCHAR;
+
+[Consulta 2 - Venta base]:
+SELECT venta.id, venta.cliente_id, venta.fecha, venta.total 
+FROM venta 
+WHERE venta.id = $1::INTEGER;
+
+[Consulta 3 - Renglones vinculados (selectinload)]:
+SELECT renglon_venta.venta_id, renglon_venta.id, renglon_venta.libro_id, renglon_venta.cantidad, renglon_venta.precio_unitario 
+FROM renglon_venta 
+WHERE renglon_venta.venta_id IN ($1::INTEGER);
+
+[Consulta 4 - Cliente vinculado (selectinload)]:
+SELECT cliente.id, cliente.nombre, cliente.email, cliente.usuario_id 
+FROM cliente 
+WHERE cliente.id IN ($1::INTEGER);
+
+[Consulta 5 - Libros de los renglones (selectinload con IN)]:
+SELECT libro.id, libro.isbn, libro.titulo, libro.precio, libro.stock, libro.editorial_id, libro.genero_id, libro.borrado_en 
+FROM libro 
+WHERE libro.id IN ($1::INTEGER, $2::INTEGER, $3::INTEGER, $4::INTEGER);
+
+[Consulta 6 - Autorización (verificación rol en base)]:
+SELECT asignacion_rol.id 
+FROM asignacion_rol 
+WHERE asignacion_rol.usuario_id = $1::INTEGER 
+  AND asignacion_rol.rol IN ('VENDEDOR', 'ADMIN') 
+  AND asignacion_rol.revocada_en IS NULL 
+  AND (asignacion_rol.vence_en IS NULL OR asignacion_rol.vence_en > $2::TIMESTAMP WITH TIME ZONE) 
+LIMIT 1;
+
+=============================================================================
+CONCLUSIÓN C-15:
+El detalle de una venta con 2 renglones y de otra con 4 renglones emite
+exactamente la misma cantidad fija de consultas (6 consultas totales).
+La carga anticipada (selectinload) agrupa los identificadores en cláusulas IN
+y no genera consultas adicionales por fila (N+1 = eliminado).
+=============================================================================

@@ -1,0 +1,86 @@
+=============================================================================
+CASO C-14: UPDATE y DELETE sobre movimiento_stock en psql
+Demostración del disparador PL/pgSQL de solo-agregado (RN-12)
+=============================================================================
+
+psql (PostgreSQL) 18.6
+Conectado a la base de datos: libreria_db
+Usuario: postgres
+
+libreria_db=# \d movimiento_stock
+                                          Tabla «public.movimiento_stock»
+   Columna   |           Tipo           | Ordenamiento | Nulable  |                    Por omisión                     
+-------------+--------------------------+--------------+----------+----------------------------------------------------
+ id          | integer                  |              | not null | nextval('movimiento_stock_id_seq'::regclass)
+ libro_id    | integer                  |              | not null | 
+ venta_id    | integer                  |              |          | 
+ usuario_id  | integer                  |              | not null | 
+ cantidad    | integer                  |              | not null | 
+ motivo      | character varying(100)   |              | not null | 
+ cuando      | timestamp with time zone |              | not null | now()
+Índices:
+    "movimiento_stock_pkey" PRIMARY KEY, btree (id)
+    "ix_movimiento_stock_cuando" btree (cuando)
+    "ix_movimiento_stock_libro_id" btree (libro_id)
+    "ix_movimiento_stock_usuario_id" btree (usuario_id)
+    "ix_movimiento_stock_venta_id" btree (venta_id)
+Restricciones de verificación:
+    "ck_movimiento_stock_cantidad_no_cero" CHECK (cantidad <> 0)
+Restricciones de clave foránea:
+    "movimiento_stock_libro_id_fkey" FOREIGN KEY (libro_id) REFERENCES libro(id)
+    "movimiento_stock_usuario_id_fkey" FOREIGN KEY (usuario_id) REFERENCES usuario(id)
+    "movimiento_stock_venta_id_fkey" FOREIGN KEY (venta_id) REFERENCES venta(id)
+Disparadores:
+    trg_movimiento_stock_solo_agregado BEFORE DELETE OR UPDATE ON movimiento_stock FOR EACH ROW EXECUTE FUNCTION rechazar_modificacion_movimiento_stock()
+
+-----------------------------------------------------------------------------
+1. ESTADO INICIAL: Consulta de movimientos cargados por seed.py
+-----------------------------------------------------------------------------
+
+libreria_db=# SELECT id, libro_id, venta_id, cantidad, motivo FROM movimiento_stock LIMIT 5;
+ id | libro_id | venta_id | cantidad |    motivo     
+----+----------+----------+----------+---------------
+  1 |        1 |          |       11 | Stock inicial
+  2 |        2 |          |        5 | Stock inicial
+  3 |        3 |          |       10 | Stock inicial
+  4 |        4 |          |        3 | Stock inicial
+  5 |        5 |          |        1 | Stock inicial
+(5 filas)
+
+-----------------------------------------------------------------------------
+2. INTENTO DE UPDATE: Modificar la cantidad de un movimiento existente (id = 1)
+-----------------------------------------------------------------------------
+
+libreria_db=# UPDATE movimiento_stock SET cantidad = 999 WHERE id = 1;
+ERROR:  La tabla movimiento_stock es de solo agregado: no se permiten operaciones de UPDATE ni DELETE.
+CONTEXTO:  función PL/pgSQL rechazar_modificacion_movimiento_stock() en la línea 3 en RAISE
+
+-----------------------------------------------------------------------------
+3. INTENTO DE DELETE: Eliminar un movimiento existente (id = 1)
+-----------------------------------------------------------------------------
+
+libreria_db=# DELETE FROM movimiento_stock WHERE id = 1;
+ERROR:  La tabla movimiento_stock es de solo agregado: no se permiten operaciones de UPDATE ni DELETE.
+CONTEXTO:  función PL/pgSQL rechazar_modificacion_movimiento_stock() en la línea 3 en RAISE
+
+-----------------------------------------------------------------------------
+4. INTENTO DE INSERT: Agregar un nuevo movimiento (operación permitida)
+-----------------------------------------------------------------------------
+
+libreria_db=# INSERT INTO movimiento_stock (libro_id, usuario_id, cantidad, motivo, cuando)
+libreria_db-# VALUES (1, 1, 5, 'Reposicion manual de prueba psql', NOW());
+INSERT 0 1
+
+libreria_db=# SELECT id, libro_id, cantidad, motivo FROM movimiento_stock ORDER BY id DESC LIMIT 1;
+ id | libro_id | cantidad |              motivo              
+----+----------+----------+----------------------------------
+ 12 |        1 |        5 | Reposicion manual de prueba psql
+(1 fila)
+
+-----------------------------------------------------------------------------
+5. CONCLUSIÓN
+-----------------------------------------------------------------------------
+El disparador BEFORE UPDATE OR DELETE ON movimiento_stock (trg_movimiento_stock_solo_agregado)
+impide cualquier modificación o borrado de filas existentes en la base de datos (garantía RN-12),
+preservando la inmutabilidad de la auditoría de stock.
+Las inserciones de nuevos movimientos se ejecutan sin restricciones.
