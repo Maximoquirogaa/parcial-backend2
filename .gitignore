@@ -43,3 +43,9 @@ venv.bak/
 # Database files
 *.db
 *.sqlite3
+
+
+# Packaging & Local build artifacts
+*.zip
+pack_zip.py
+verify_zip.py
